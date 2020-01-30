@@ -146,7 +146,9 @@ sub _worker {
         $worker = Gearman::Worker->new(job_servers => [ $server ]);
         _debug(sprintf("worker created for %s", $server));
         for my $queue (sort keys %{$queues}) {
-            $worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } );
+            if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
+                _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
+            }
         }
 
         _enable_tcp_keepalive($worker);
