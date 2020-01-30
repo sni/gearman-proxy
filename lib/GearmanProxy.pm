@@ -142,6 +142,7 @@ sub _worker {
     };
 
     while($keep_running) {
+        my $start = time();
         $worker = Gearman::Worker->new(job_servers => [ $server ]);
         _debug(sprintf("worker created for %s", $server));
         for my $queue (sort keys %{$queues}) {
@@ -167,7 +168,10 @@ sub _worker {
                 my ($is_idle, $last_job_time) = @_;
                 _debug(sprintf("stop_if: is_idle=%d - last_job_time=%s keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
                 return 1 if ! $keep_running;
-                # TODO: restart if last_job_time is too old or empty
+                if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
+                    _debug(sprintf("refreshing worker after 1min idle"));
+                    return 1;
+                }
                 return;
             },
         );
