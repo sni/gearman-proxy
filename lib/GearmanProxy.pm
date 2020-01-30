@@ -112,21 +112,12 @@ sub _work {
         _warn('no queues configured');
     }
 
-    #################################################
-    # create worker
-    my $workers = {};
-    for my $conf (keys %{$self->{'queues'}}) {
-        my($server,$queue) = split/\//mx, $conf, 2;
-        $workers->{$server} = [] unless defined $workers->{$server};
-        push @{$workers->{$server}}, { from => $queue, to => $self->{'queues'}->{$conf} };
-    }
-
-    # cache client connections
+    # clear client connection cache
     $self->{'clients'} = {};
 
-    # start all worker
-    for my $server (keys %{$workers}) {
-        threads->create('_worker', $self, $server, $workers->{$server});
+    # create one worker per uniq server
+    for my $server (keys %{$self->{'queues'}}) {
+        threads->create('_worker', $self, $server, $self->{'queues'}->{$server});
     }
 
     # wait till worker finish
@@ -153,9 +144,8 @@ sub _worker {
     while($keep_running) {
         $worker = Gearman::Worker->new(job_servers => [ $server ]);
         _debug(sprintf("worker created for %s", $server));
-        for my $queue (@{$queues}) {
-            # TODO: ...
-            $worker->register_function($queue->{'from'} => sub { $self->_forward_job($queue->{'to'}, @_) } );
+        for my $queue (sort keys %{$queues}) {
+            $worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } );
         }
 
         _enable_tcp_keepalive($worker);
@@ -186,24 +176,35 @@ sub _worker {
 }
 
 #################################################
-sub _forward_job {
-# TODO: ...
-return;
-    my($self, $target,$job) = @_;
+sub _job_handler {
+    my($self, $config, $job) = @_;
 
-# TODO: parse once
-    my($server,$queue) = split/\//mx, $target, 2;
-
-    _debug($job->handle." -> ".$target);
+    my $server = $config->{'remoteHost'};
+    _debug('%s -> server %s - %s', $job->handle, $server, $config->{'remoteQueue'});
+    _debug($config);
 
     my $client = $self->{'clients'}->{$server};
-    unless( defined $client) {
+    unless(defined $client) {
         $client = Gearman::Client->new(job_servers => [ $server ]);
         $self->{'clients'}->{$server} = $client;
         _enable_tcp_keepalive($client);
     }
 
-    $client->dispatch_background($queue, $job->arg, { uniq => $job->handle });
+    my $data = $job->arg;
+    if($config->{'decrypt'}) {
+        # decrypt data with local password
+        # TODO:
+    }
+    if($config->{'resultQueue'}) {
+        # rewrite result_queue
+        # TODO:
+    }
+    if($config->{'encrypt'}) {
+        # encrypt data with new remote password
+        # TODO:
+    }
+
+    $client->dispatch_background($config->{'remoteQueue'}, $data, { uniq => $job->handle });
     return;
 }
 
@@ -253,11 +254,39 @@ sub _read_config {
 
     $self->{'logfile'} = $self->{'args'}->{'logFile'} // $logfile // 'stdout';
     $self->{'debug'}   = $self->{'args'}->{'debug'} // $debug // 0;
-    $self->{'queues'}  = $queues;
+    $self->{'queues'}  = $self->_parse_queues($queues);
 
     $debug_log_enabled = $self->{'debug'};
     $logFile           = $self->{'logfile'};
     return;
+}
+
+#################################################
+sub _parse_queues {
+    my($self, $raw) = @_;
+    my $queues = {};
+    for my $key (sort keys %{$raw}) {
+        my($fromserver,$fromqueue) = split(/\//mx, $key, 2);
+        my $to = $raw->{$key};
+        # simple string declaration
+        if(ref $to eq '') {
+            $to = {
+                "remoteQueue" => "$to",
+            };
+        }
+        if(!$to->{'remoteQueue'}) {
+            _error("missing remoteQueue definition in queue configuration");
+            _error($to);
+            next;
+        }
+        # expand remote host
+        my($remoteHost, $remoteQueue) = split(/\//mx, $to->{'remoteQueue'}, 2);
+        $to->{'remoteHost'}  = $remoteHost;
+        $to->{'remoteQueue'} = $remoteQueue;
+
+        $queues->{$fromserver}->{$fromqueue} = $to;
+    }
+    return($queues);
 }
 
 #################################################
@@ -280,7 +309,7 @@ sub _out {
     }
 
     chomp($txt);
-    my @txt = split/\n/mx,$txt;
+    my @txt = split(/\n/mx, $txt);
     my($seconds, $microseconds) = gettimeofday;
     for my $t (@txt)  {
         my $pad = ' ';
