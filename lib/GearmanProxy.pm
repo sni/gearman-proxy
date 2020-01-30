@@ -41,6 +41,17 @@ my $pidFile;
 my $debug_log_enabled;
 
 #################################################
+
+=head2 run
+
+    GearmanProxy->run({
+        configFiles => list of config files
+        logFile     => path to logfile or 'stderr', 'stdout'
+        pidFile     => optional path to pidfile
+        debug       => optional flag to enable debug output
+    })
+
+=cut
 sub run {
     my($class, $config) = @_;
 
@@ -74,7 +85,7 @@ sub run {
 #################################################
 END {
     unlink($pidFile) if $pidFile;
-};
+}
 
 #################################################
 sub _signal_handler {
@@ -87,6 +98,7 @@ sub _signal_handler {
         exit(0);
     }
     _info(sprintf("caught signal %s, reloading configuration", $sig));
+    return;
 }
 
 #################################################
@@ -96,7 +108,7 @@ sub _work {
     $self->_read_config($self->{'args'}->{'configFiles'});
     _debug($self->{'queues'});
 
-    if(!defined $self->{'queues'} or scalar keys %{$self->{'queues'}} == 0) {
+    if(!defined $self->{'queues'} || scalar keys %{$self->{'queues'}} == 0) {
         _warn('no queues configured');
     }
 
@@ -104,7 +116,7 @@ sub _work {
     # create worker
     my $workers = {};
     for my $conf (keys %{$self->{'queues'}}) {
-        my($server,$queue) = split/\//, $conf, 2;
+        my($server,$queue) = split/\//mx, $conf, 2;
         $workers->{$server} = [] unless defined $workers->{$server};
         push @{$workers->{$server}}, { from => $queue, to => $self->{'queues'}->{$conf} };
     }
@@ -122,6 +134,7 @@ sub _work {
         sleep(5);
     }
     _debug("all worker finished");
+    return;
 }
 
 #################################################
@@ -131,7 +144,7 @@ sub _worker {
 
     my $keep_running = 1;
     my $worker;
-    $SIG{'HUP'}  = sub {
+    local $SIG{'HUP'}  = sub {
         _debug(sprintf("worker thread exits by signal %s", "HUP"));
         $worker->reset_abilities() if $worker;
         $keep_running = 0;
@@ -177,7 +190,9 @@ sub _forward_job {
 # TODO: ...
 return;
     my($self, $target,$job) = @_;
-    my($server,$queue) = split/\//, $target, 2;
+
+# TODO: parse once
+    my($server,$queue) = split/\//mx, $target, 2;
 
     _debug($job->handle." -> ".$target);
 
@@ -265,7 +280,7 @@ sub _out {
     }
 
     chomp($txt);
-    my @txt = split/\n/,$txt;
+    my @txt = split/\n/mx,$txt;
     my($seconds, $microseconds) = gettimeofday;
     for my $t (@txt)  {
         my $pad = ' ';
@@ -295,12 +310,14 @@ sub _fatal {
 sub _warn {
     my($txt) = @_;
     _out($txt, "WARNING");
+    return;
 }
 
 #################################################
 sub _info {
     my($txt) = @_;
     _out($txt, "INFO");
+    return;
 }
 
 #################################################
@@ -308,6 +325,7 @@ sub _debug {
     my($txt) = @_;
     return unless $debug_log_enabled;
     _out($txt, "DEBUG");
+    return;
 }
 
 =head1 AUTHOR

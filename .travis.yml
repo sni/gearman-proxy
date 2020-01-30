@@ -1,0 +1,24 @@
+sudo: required
+dist: xenial
+language: generic
+addons:
+  apt:
+    packages:
+    - gearman-job-server
+    - perl
+    - perl-doc
+    - cpanminus
+    - libgearman-client-perl
+    - libtest-pod-coverage-perl
+before_install:
+  - sudo apt-get update
+  - cpanm -q -f --notest --no-man-pages Test::Vars
+
+install:
+  - perl Makefile.PL || exit 1
+
+script:
+  - sudo su $(id -un) -c 'eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && make test';
+notifications:
+  email:
+    - sven@nierlein.de

@@ -1,0 +1,16 @@
+.travis.yml
+\.swp
+blib
+\.git
+^Makefile$
+Makefile.old
+MANIFEST.bak
+MANIFEST.SKIP
+MYMETA.yml
+MYMETA.json
+pm_to_blib
+.*\.gz
+# does not work for centos without F::C::R installed
+inc/File/Copy/Recursive.pm
+.vstags
+.vscode

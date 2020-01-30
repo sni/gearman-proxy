@@ -13,17 +13,9 @@ resources(
     'license'     => 'http://dev.perl.org/licenses/',
 );
 
-requires 'Pod::Usage'            => 0;
-requires 'Getopt::Long'          => 0;
 requires 'Gearman::Worker'       => 0;
 requires 'Gearman::Client'       => 0;
-requires 'threads'               => 0;
-requires 'Data::Dumper'          => 0;
 requires 'Socket'                => 0;
-requires 'POSIX'                 => 0;
-requires 'Time::HiRes'           => 0;
-requires 'sigtrap'               => 0;
-
 
 # touch the Makefile, so Extutils skips its broken 'check_manifest()'
 `touch Makefile`;
