@@ -182,17 +182,21 @@ sub _work {
 #################################################
 sub _worker {
     my($self, $server, $queues) = @_;
-    my $tid = threads->tid();
-    _debug(sprintf("[%s] worker thread started", $tid));
+    _debug("worker thread started");
 
+    my $keep_running = 1;
+    my $worker;
     $SIG{'HUP'}  = sub {
-        _debug(sprintf("[%s] worker thread exits by signal %s", $tid, "HUP"));
-        threads->exit();
+        _debug(sprintf("worker thread exits by signal %s", "HUP"));
+        $worker->reset_abilities() if $worker;
+        $keep_running = 0;
     };
 
-    while(1) {
-        my $worker = Gearman::Worker->new(job_servers => [ $server ]);
+    while($keep_running) {
+        $worker = Gearman::Worker->new(job_servers => [ $server ]);
+        _debug(sprintf("worker created for %s", $server));
         for my $queue (@{$queues}) {
+            # TODO: ...
             $worker->register_function($queue->{'from'} => sub { $self->_forward_job($queue->{'to'}, @_) } );
         }
 
@@ -201,29 +205,32 @@ sub _worker {
         $worker->work(
             on_start => sub {
                 my ($jobhandle) = @_;
-                _debug(sprintf("[%s][%s] job starting", $tid, $jobhandle));
+                _debug(sprintf("[%s] job starting", $jobhandle));
             },
             on_complete => sub {
                 my ($jobhandle, $result) = @_;
-                _debug(sprintf("[%s][%s] job completed", $tid, $jobhandle));
+                _debug(sprintf("[%s] job completed", $jobhandle));
             },
             on_fail => sub {
                 my($jobhandle, $err) = @_;
-                _error(sprintf("[%s][%s] job failed", $tid, $jobhandle));
+                _error(sprintf("[%s] job failed", $jobhandle));
             },
             stop_if => sub {
                 my ($is_idle, $last_job_time) = @_;
-                #return $is_idle;
-                _debug(sprintf("[%s] stop_if: is_idle=%d - last_job_time=%s", $tid, $is_idle, $last_job_time ? $last_job_time : "never"));
+                _debug(sprintf("stop_if: is_idle=%d - last_job_time=%s keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
+                return 1 if ! $keep_running;
+                # TODO: restart if last_job_time is too old or empty
                 return;
             },
         );
     }
-    return;
+    return(threads->exit());
 }
 
 #################################################
 sub _forward_job {
+# TODO: ...
+return;
     my($self, $target,$job) = @_;
     my($server,$queue) = split/\//, $target, 2;
 
@@ -316,10 +323,14 @@ sub _out {
     my @txt = split/\n/,$txt;
     my($seconds, $microseconds) = gettimeofday;
     for my $t (@txt)  {
-        printf($fh "[%s.%s][%s] %s\n",
+        my $pad = ' ';
+        if($t =~ m/^\[/mx) { $pad = ''; }
+        printf($fh "[%s.%s][%s][thread-%s]%s%s\n",
                     POSIX::strftime("%Y-%m-%d %H:%M:%S", localtime($seconds)),
                     substr(sprintf("%06s", $microseconds), 0, 3), # zero pad microseconds to 6 digits and take the first 3 digits for milliseconds
                     $lvl,
+                    threads->tid(),
+                    $pad,
                     $t,
         );
     }
