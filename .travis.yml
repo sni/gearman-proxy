@@ -11,6 +11,7 @@ addons:
     - libmodule-install-perl
     - libgearman-client-perl
     - libtest-pod-coverage-perl
+    - libcrypt-rijndael-perl
 before_install:
   - sudo apt-get update
   - cpanm -q -f --notest --no-man-pages Test::Vars
