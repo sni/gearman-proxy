@@ -31,7 +31,8 @@ use threads;
 use Data::Dumper;
 use Socket qw(IPPROTO_TCP SOL_SOCKET SO_KEEPALIVE TCP_KEEPIDLE TCP_KEEPINTVL TCP_KEEPCNT);
 use POSIX ();
-use Time::HiRes q/gettimeofday/;
+use File::Slurp qw/read_file/;
+use Time::HiRes qw/gettimeofday/;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
 
 our $VERSION = "2.0";
@@ -217,12 +218,15 @@ sub _job_handler {
         # decrypt data with local password
         $data = $self->_decrypt($data, $config->{'decrypt'});
     }
-    # rewrite result_queue
-    if($config->{'resultQueue'}) {
+    # run data callback
+    if($config->{'data_callback'}) {
         # if not already decrypted, data is still base64 encoded
         if(!$config->{'decrypt'}) {
             $data = MIME::Base64::decode_base64($data);
         }
+
+        $data = &{$config->{'data_callback'}}($data, $job, $config, $self);
+
         # if data is not going to be encrypted, it needs to be base64
         if(!$config->{'encrypt'}) {
             $data = MIME::Base64::encode_base64($data);
@@ -352,8 +356,11 @@ sub _decrypt {
 sub _cipher {
     my($self, $pass) = @_;
     return($self->{'cipher_cache'}->{$pass} ||= do {
-        my $pass = substr(_null_pad($pass),0,32);
-        return(Crypt::Rijndael->new($pass, Crypt::Rijndael::MODE_ECB()));
+        if($pass =~ m/^file:(.*)$/mx) {
+            $pass = read_file($1);
+        }
+        my $key = substr(_null_pad($pass),0,32);
+        return(Crypt::Rijndael->new($key, Crypt::Rijndael::MODE_ECB()));
     });
 }
 
