@@ -21,6 +21,19 @@ Gearman-Proxy.
 
   %> gearman_proxy.pl --config=./gearman_proxy.cfg --logfile=stdout --debug
 
+## Metrics
+
+You can monitor the status of the proxy and fetch some metrics with the check_gearman naemon plugin.
+
+Enable the status queue by putting:
+
+    $statusqueue = "127.0.0.1:4730/proxy_status";
+
+in your configuration and check it with:
+
+  %> .../check_gearman -H localhost -q proxy_status -s check
+
+
 ## License
 
 GearmanProxy is Copyright (c) 2009-2020 by Sven Nierlein.

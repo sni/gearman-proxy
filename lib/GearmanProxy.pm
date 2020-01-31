@@ -28,6 +28,7 @@ use strict;
 use Gearman::Worker;
 use Gearman::Client;
 use threads;
+use threads::shared;
 use Data::Dumper;
 use Socket qw(IPPROTO_TCP SOL_SOCKET SO_KEEPALIVE TCP_KEEPIDLE TCP_KEEPINTVL TCP_KEEPCNT);
 use POSIX ();
@@ -40,6 +41,7 @@ our $VERSION = "2.0";
 my $logFile;
 my $pidFile;
 my $debug_log_enabled;
+my %metrics :shared;
 
 #################################################
 
@@ -163,9 +165,16 @@ sub _worker {
         _debug(sprintf("worker created for %s", $server));
         my $errors = 0;
         for my $queue (sort keys %{$queues}) {
-            if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
-                _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
-                $errors++;
+            if($queues->{$queue}->{'status'}) {
+                if(!$worker->register_function($queue => sub { $self->_status_handler($queues->{$queue}, @_) } )) {
+                    _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
+                    $errors++;
+                }
+            } else {
+                if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
+                    _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
+                    $errors++;
+                }
             }
         }
 
@@ -177,11 +186,11 @@ sub _worker {
 
         $worker->work(
             on_start => sub {
-                my ($jobhandle) = @_;
+                my($jobhandle) = @_;
                 _debug(sprintf("[%s] job starting", $jobhandle));
             },
             on_complete => sub {
-                my ($jobhandle, $result) = @_;
+                my($jobhandle, $result) = @_;
                 _debug(sprintf("[%s] job completed: %s", $jobhandle, $result));
             },
             on_fail => sub {
@@ -189,7 +198,7 @@ sub _worker {
                 _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
             },
             stop_if => sub {
-                my ($is_idle, $last_job_time) = @_;
+                my($is_idle, $last_job_time) = @_;
                 _debug(sprintf("stop_if: is_idle=%d - last_job_time=%s keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
                 return 1 if ! $keep_running;
                 if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
@@ -237,8 +246,39 @@ sub _job_handler {
         $data = $self->_encrypt($data, $config->{'encrypt'});
     }
 
+    $metrics{$config->{'localQueue'}}++;
+
     $client->dispatch_background($config->{'remoteQueue'}, $data, { uniq => $job->handle });
-    return 1;
+    return(1);
+}
+
+#################################################
+sub _status_handler {
+    my($self, $config, $job) = @_;
+
+    _debug(sprintf('job: %s -> status request', $job->handle));
+    _debug($config);
+
+    # count queues
+    my $queue_nr = 0;
+    for my $server (sort keys %{$self->{'queues'}}) {
+        for my $queue (sort keys %{$self->{'queues'}->{$server}}) {
+            if($self->{'queues'}->{$server}->{$queue}->{'localQueue'}) {
+                $queue_nr++;
+                $metrics{$self->{'queues'}->{$server}->{$queue}->{'localQueue'}} += 0;
+            }
+        }
+    }
+    my $perfdata = sprintf("server=%d queues=%d", scalar keys %{$self->{'queues'}}, $queue_nr);
+
+    for my $q (sort keys %metrics) {
+        $perfdata .= sprintf(" '%s'=%dc", $q, $metrics{$q});
+    }
+
+    return(sprintf("proxy version v%s running.|%s",
+                $VERSION,
+                $perfdata,
+    ));
 }
 
 #################################################
@@ -264,9 +304,10 @@ sub _read_config {
     my($self, $files) = @_;
 
     # these variables can be overriden by the config files
-    our $queues;
-    our $logfile;
-    our $debug;
+    our $queues      = {};
+    our $logfile     = "";
+    our $debug       = 0;
+    our $statusqueue = "";
 
     for my $entry (@{$files}) {
         my @files;
@@ -285,9 +326,14 @@ sub _read_config {
         }
     }
 
-    $self->{'logfile'} = $self->{'args'}->{'logFile'} // $logfile // 'stdout';
-    $self->{'debug'}   = $self->{'args'}->{'debug'} // $debug // 0;
-    $self->{'queues'}  = $self->_parse_queues($queues);
+    $self->{'logfile'}     = $self->{'args'}->{'logFile'} // $logfile // 'stdout';
+    $self->{'debug'}       = $self->{'args'}->{'debug'} // $debug // 0;
+    $self->{'queues'}      = $self->_parse_queues($queues);
+
+    if($statusqueue) {
+        my($server, $queue) = split(/\//mx, $statusqueue);
+        $self->{'queues'}->{$server}->{$queue} = { "status" => 1 };
+    }
 
     $debug_log_enabled = $self->{'debug'};
     $logFile           = $self->{'logfile'};
@@ -316,6 +362,8 @@ sub _parse_queues {
         my($remoteHost, $remoteQueue) = split(/\//mx, $to->{'remoteQueue'}, 2);
         $to->{'remoteHost'}  = $remoteHost;
         $to->{'remoteQueue'} = $remoteQueue;
+        $to->{'localHost'}   = $fromserver;
+        $to->{'localQueue'}  = $fromqueue;
 
         # check crypto modules
         if($to->{'encrypt'} || $to->{'decrypt'}) {

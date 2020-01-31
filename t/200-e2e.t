@@ -3,7 +3,7 @@ use warnings;
 use Test::More;
 use File::Slurp qw/read_file/;
 
-plan( tests => 13);
+plan( tests => 15);
 
 use_ok("GearmanProxy");
 use_ok("Gearman::Worker");
@@ -63,6 +63,7 @@ my $testserver = "127.0.0.1:".$testport;
 my $proxy      = GearmanProxy->new({});
 my $client     = $proxy->_get_client($testserver);
 
+# plain text forward
 {
     my $testdata   = read_file("t/testdata.plain");
     my $job        = $client->dispatch_background("in1", $testdata, { uniq => "test1" });
@@ -75,7 +76,8 @@ my $client     = $proxy->_get_client($testserver);
     like($data, '/result_queue=check_results/', "test data contains result_queue");
 };
 
-
+################################################################################
+# encrypted text forward
 {
     my $testdata   = read_file("t/testdata.crypt");
     my $job        = $client->dispatch_background("in2", $testdata, { uniq => "test2" });
@@ -88,16 +90,32 @@ my $client     = $proxy->_get_client($testserver);
 };
 
 ################################################################################
+# status information
+{
+    my $testdata   = "status";
+    my $result_ref = $client->do_task("proxy_status", "status");
+    like($$result_ref, '/running/', "got status answer");
+    like($$result_ref, '/in1/', "status answer contains counter");
+};
+
+################################################################################
 # kill gearmand and proxy
-kill('TERM', $gearmand_pid);
-kill('TERM', $proxy_pid);
-unlink($gearmand_pidfile);
-unlink($gearmand_logfile);
-unlink($proxy_pidfile);
-unlink($proxy_logfile);
+_cleanup();
 exit(0);
 
+sub _cleanup {
+    kill('TERM', $gearmand_pid);
+    kill('TERM', $proxy_pid);
+    unlink($gearmand_pidfile);
+    unlink($gearmand_logfile);
+    unlink($proxy_pidfile);
+    unlink($proxy_logfile);
+}
 
+################################################################################
+END {
+    _cleanup();
+};
 
 ################################################################################
 sub _fetch_result {
