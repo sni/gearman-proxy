@@ -217,8 +217,18 @@ sub _job_handler {
         # decrypt data with local password
         $data = $self->_decrypt($data, $config->{'decrypt'});
     }
+    # rewrite result_queue
     if($config->{'resultQueue'}) {
-        # rewrite result_queue
+        # if not already decrypted, data is still base64 encoded
+        if(!$config->{'decrypt'}) {
+            $data = MIME::Base64::decode_base64($data);
+        }
+# TODO: ...
+select(STDERR); $| = 1; select(STDOUT); $| = 1; use Data::Dumper; print STDERR Dumper($data);
+        # if data is not going to be encrypted, it needs to be base64
+        if(!$config->{'encrypt'}) {
+            $data = MIME::Base64::encode_base64($data);
+        }
     }
     if($config->{'encrypt'}) {
         # encrypt data with new remote password
@@ -451,7 +461,7 @@ Sven Nierlein, 2009-present, <sven@nierlein.org>
 
 =head1 LICENSE
 
-Thruk is Copyright (c) 2009-2020 by Sven Nierlein.
+GearmanProxy is Copyright (c) 2009-2020 by Sven Nierlein.
 This is free software; you can redistribute it and/or modify it under the
 same terms as the Perl5 programming language system itself.
 

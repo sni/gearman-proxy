@@ -23,4 +23,7 @@ Gearman-Proxy.
 
 ## License
 
-MIT
+GearmanProxy is Copyright (c) 2009-2020 by Sven Nierlein.
+This is free software; you can redistribute it and/or modify it under the
+same terms as the Perl5 programming language system itself.
+
