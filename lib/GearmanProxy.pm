@@ -181,11 +181,11 @@ sub _worker {
             },
             on_complete => sub {
                 my ($jobhandle, $result) = @_;
-                _debug(sprintf("[%s] job completed", $jobhandle));
+                _debug(sprintf("[%s] job completed: %s", $jobhandle, $result));
             },
             on_fail => sub {
                 my($jobhandle, $err) = @_;
-                _error(sprintf("[%s] job failed", $jobhandle));
+                _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
             },
             stop_if => sub {
                 my ($is_idle, $last_job_time) = @_;
@@ -223,8 +223,6 @@ sub _job_handler {
         if(!$config->{'decrypt'}) {
             $data = MIME::Base64::decode_base64($data);
         }
-# TODO: ...
-select(STDERR); $| = 1; select(STDOUT); $| = 1; use Data::Dumper; print STDERR Dumper($data);
         # if data is not going to be encrypted, it needs to be base64
         if(!$config->{'encrypt'}) {
             $data = MIME::Base64::encode_base64($data);
