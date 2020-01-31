@@ -8,6 +8,7 @@ addons:
     - perl
     - perl-doc
     - cpanminus
+    - libmodule-install-perl
     - libgearman-client-perl
     - libtest-pod-coverage-perl
 before_install:
