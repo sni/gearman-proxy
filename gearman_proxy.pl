@@ -73,4 +73,5 @@ if(scalar @{$config->{'configFiles'}} == 0) {
     }
 }
 
-exit(GearmanProxy->run($config));
+my $proxy = GearmanProxy->new($config);
+exit($proxy->run());

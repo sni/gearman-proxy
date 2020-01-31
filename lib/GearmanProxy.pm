@@ -42,9 +42,9 @@ my $debug_log_enabled;
 
 #################################################
 
-=head2 run
+=head2 new
 
-    GearmanProxy->run({
+    GearmanProxy->new({
         configFiles => list of config files
         logFile     => path to logfile or 'stderr', 'stdout'
         pidFile     => optional path to pidfile
@@ -52,7 +52,7 @@ my $debug_log_enabled;
     })
 
 =cut
-sub run {
+sub new {
     my($class, $config) = @_;
 
     my $self = {
@@ -60,6 +60,20 @@ sub run {
         debug => $config->{'debug'},
     };
     bless $self, $class;
+
+    return($self);
+}
+
+#################################################
+
+=head2 run
+
+    GearmanProxy->run()
+
+=cut
+sub run {
+    my($self) = @_;
+
     $pidFile           = $self->{'args'}->{'pidFile'};
     $debug_log_enabled = $self->{'args'}->{'debug'};
 
@@ -112,8 +126,9 @@ sub _work {
         _warn('no queues configured');
     }
 
-    # clear client connection cache
-    $self->{'clients'} = {};
+    # clear client connection cache and ciphers
+    $self->{'clients_cache'} = {};
+    $self->{'cipher_cache'}  = {};
 
     # create one worker per uniq server
     for my $server (keys %{$self->{'queues'}}) {
@@ -145,10 +160,16 @@ sub _worker {
         my $start = time();
         $worker = Gearman::Worker->new(job_servers => [ $server ]);
         _debug(sprintf("worker created for %s", $server));
+        my $errors = 0;
         for my $queue (sort keys %{$queues}) {
             if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
                 _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
+                $errors++;
             }
+        }
+
+        if(scalar keys %{$queues} == $errors) {
+            _error(sprintf("gearman daemon %s seems to be down", $server));
         }
 
         _enable_tcp_keepalive($worker);
@@ -189,25 +210,19 @@ sub _job_handler {
     _debug('%s -> server %s - %s', $job->handle, $server, $config->{'remoteQueue'});
     _debug($config);
 
-    my $client = $self->{'clients'}->{$server};
-    unless(defined $client) {
-        $client = Gearman::Client->new(job_servers => [ $server ]);
-        $self->{'clients'}->{$server} = $client;
-        _enable_tcp_keepalive($client);
-    }
+    my $client = $self->_get_client($server);
+    my $data   = $job->arg;
 
-    my $data = $job->arg;
     if($config->{'decrypt'}) {
         # decrypt data with local password
-        # TODO:
+        $data = $self->_decrypt($data, $config->{'decrypt'});
     }
     if($config->{'resultQueue'}) {
         # rewrite result_queue
-        # TODO:
     }
     if($config->{'encrypt'}) {
         # encrypt data with new remote password
-        # TODO:
+        $data = $self->_encrypt($data, $config->{'encrypt'});
     }
 
     $client->dispatch_background($config->{'remoteQueue'}, $data, { uniq => $job->handle });
@@ -290,9 +305,67 @@ sub _parse_queues {
         $to->{'remoteHost'}  = $remoteHost;
         $to->{'remoteQueue'} = $remoteQueue;
 
+        # check crypto modules
+        if($to->{'encrypt'} || $to->{'decrypt'}) {
+            eval {
+                require Crypt::Rijndael;
+                require MIME::Base64;
+            };
+            my $err = $@;
+            if($err) {
+                _fatal(sprintf("encrypt/decrypt requires additional modules (Crypt::Rijndael and MIME::Base64) which failed to load: %s", $err));
+            }
+        }
+
         $queues->{$fromserver}->{$fromqueue} = $to;
     }
     return($queues);
+}
+
+#################################################
+sub _encrypt {
+    my($self, $txt, $pass) = @_;
+    my $cipher = $self->_cipher($pass);
+    $txt = _null_pad($txt);
+    return(MIME::Base64::encode_base64($cipher->encrypt($txt)));
+}
+
+#################################################
+sub _decrypt {
+    my($self, $txt, $pass) = @_;
+    my $cipher = $self->_cipher($pass);
+    my $dec = $cipher->decrypt(MIME::Base64::decode_base64($txt));
+    # strip null bytes
+    $dec =~ s/\x00*$//mx;
+    return($dec);
+}
+
+#################################################
+sub _cipher {
+    my($self, $pass) = @_;
+    return($self->{'cipher_cache'}->{$pass} ||= do {
+        my $pass = substr(_null_pad($pass),0,32);
+        return(Crypt::Rijndael->new($pass, Crypt::Rijndael::MODE_ECB()));
+    });
+}
+
+#################################################
+sub _null_pad {
+    my($str) = @_;
+    my $pad = (POSIX::ceil(length($str) / 32) * 32) - length($str);
+    if(length($str) == 0) { $pad = 32; }
+    $str = $str . chr(0) x $pad;
+    return($str);
+}
+
+#################################################
+sub _get_client {
+    my($self, $server) = @_;
+    return($self->{'clients_cache'}->{$server} ||= do {
+        my $client = Gearman::Client->new(job_servers => [$server]);
+        _enable_tcp_keepalive($client);
+        return($client);
+    });
 }
 
 #################################################
@@ -342,6 +415,13 @@ sub _fatal {
 }
 
 #################################################
+sub _error {
+    my($txt) = @_;
+    _out($txt, "ERROR");
+    return;
+}
+
+#################################################
 sub _warn {
     my($txt) = @_;
     _out($txt, "WARNING");
@@ -362,6 +442,8 @@ sub _debug {
     _out($txt, "DEBUG");
     return;
 }
+
+#################################################
 
 =head1 AUTHOR
 

@@ -29,4 +29,5 @@ t/096-makefile_requirements.t
 t/097-Pod.t
 t/098-Pod-Coverage.t
 t/099-Perl-Critic.t
+t/120-crypt.t
 t/perlcriticrc

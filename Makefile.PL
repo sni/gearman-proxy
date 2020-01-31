@@ -16,6 +16,8 @@ resources(
 requires 'Gearman::Worker'       => 0;
 requires 'Gearman::Client'       => 0;
 requires 'Socket'                => 0;
+requires 'Crypt::Rijndael'       => 0;
+requires 'MIME::Base64'          => 0;
 
 # touch the Makefile, so Extutils skips its broken 'check_manifest()'
 `touch Makefile`;
