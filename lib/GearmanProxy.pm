@@ -78,14 +78,13 @@ sub run {
     $pidFile           = $self->{'args'}->{'pidFile'};
     $debug_log_enabled = $self->{'args'}->{'debug'};
 
-    _info(sprintf("%s v%s starting...", $0, $VERSION));
     _debug('command line arguments:');
     _debug($self->{'args'});
 
     #################################################
     # save pid file
     if($pidFile) {
-        open(my $fhpid, ">", $pidFile) or die "open ".$pidFile." failed: ".$!;
+        open(my $fhpid, ">", $pidFile) || die "open ".$pidFile." failed: ".$!;
         print $fhpid $$;
         close($fhpid);
     }
@@ -121,6 +120,7 @@ sub _work {
     my($self) = @_;
 
     $self->_read_config($self->{'args'}->{'configFiles'});
+    _info(sprintf("%s v%s starting...", $0, $VERSION));
     _debug($self->{'queues'});
 
     if(!defined $self->{'queues'} || scalar keys %{$self->{'queues'}} == 0) {
@@ -208,7 +208,7 @@ sub _job_handler {
     my($self, $config, $job) = @_;
 
     my $server = $config->{'remoteHost'};
-    _debug('%s -> server %s - %s', $job->handle, $server, $config->{'remoteQueue'});
+    _debug(sprintf('job: %s -> server: %s - queue: %s', $job->handle, $server, $config->{'remoteQueue'}));
     _debug($config);
 
     my $client = $self->_get_client($server);
@@ -238,7 +238,7 @@ sub _job_handler {
     }
 
     $client->dispatch_background($config->{'remoteQueue'}, $data, { uniq => $job->handle });
-    return;
+    return 1;
 }
 
 #################################################
@@ -357,10 +357,10 @@ sub _cipher {
     my($self, $pass) = @_;
     return($self->{'cipher_cache'}->{$pass} ||= do {
         if($pass =~ m/^file:(.*)$/mx) {
-            $pass = read_file($1);
+            chomp($pass = read_file($1));
         }
         my $key = substr(_null_pad($pass),0,32);
-        return(Crypt::Rijndael->new($key, Crypt::Rijndael::MODE_ECB()));
+        Crypt::Rijndael->new($key, Crypt::Rijndael::MODE_ECB());
     });
 }
 
@@ -379,7 +379,7 @@ sub _get_client {
     return($self->{'clients_cache'}->{$server} ||= do {
         my $client = Gearman::Client->new(job_servers => [$server]);
         _enable_tcp_keepalive($client);
-        return($client);
+        $client;
     });
 }
 

@@ -15,6 +15,7 @@ Options:
 
     'c|config'      defines the config file
     'l|log'         defines the logfile
+    'p|pid'         write pidfile to this location
     'd|debug'       enable debug output
     'h'             this help message
 

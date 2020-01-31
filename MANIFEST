@@ -31,4 +31,9 @@ t/097-Pod.t
 t/098-Pod-Coverage.t
 t/099-Perl-Critic.t
 t/120-crypt.t
+t/200-e2e.t
+t/gearman_proxy.cfg
 t/perlcriticrc
+t/testdata.crypt
+t/testdata.plain
+t/testkey

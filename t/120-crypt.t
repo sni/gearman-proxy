@@ -2,7 +2,7 @@ use strict;
 use warnings;
 use Test::More;
 
-plan( tests => 12);
+plan( tests => 18);
 
 use_ok("Crypt::Rijndael");
 use_ok("MIME::Base64");
@@ -12,6 +12,7 @@ my $keys = [
     "",
     "1234",
     "0" x 64,
+    "file:t/testkey",
 ];
 
 my $data = [
@@ -30,3 +31,11 @@ for my $key (@{$keys}) {
     }
     $x++;
 }
+
+isnt(undef, $proxy->{'cipher_cache'}->{"file:t/testkey"}, "cipher has been cached");
+isa_ok($proxy->{'cipher_cache'}->{"file:t/testkey"}, "Crypt::Rijndael");
+
+
+my $enc = $proxy->_encrypt($data->[1], "file:t/testkey");
+my $dec = $proxy->_decrypt($enc, "secret");
+is($dec, $data->[1], "en/decryption worked with key from file");
