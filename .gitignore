@@ -11,3 +11,4 @@ MYMETA.yml
 .vstags
 .vscode
 !t/
+*.gz

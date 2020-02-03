@@ -29,3 +29,13 @@ eval {
     installdeps_target();
 };
 WriteAll;
+
+open(my $fh, '>>', 'Makefile') or die('cannot write to Makefile');
+print $fh <<EOT;
+gearman_proxy.pl ::
+	echo '#!/usr/bin/perl'      > ./gearman_proxy.pl
+	echo ''                    >> ./gearman_proxy.pl
+	cat ./lib/GearmanProxy.pm ./script/gearman_proxy.pl | grep -v '^use GearmanProxy' | grep -v '__END__' >> ./gearman_proxy.pl
+	chmod 755 ./gearman_proxy.pl
+EOT
+close($fh);
