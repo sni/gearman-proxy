@@ -10,5 +10,7 @@ MYMETA.json
 MYMETA.yml
 .vstags
 .vscode
-!t/
 *.gz
+gearman_proxy.pl
+!t/
+!script/
