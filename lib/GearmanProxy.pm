@@ -41,7 +41,8 @@ our $VERSION = "2.0";
 my $logFile;
 my $pidFile;
 my $debug_log_enabled;
-my %metrics :shared;
+my %metrics_counter :shared;
+my %metrics_bytes   :shared;
 
 #################################################
 
@@ -219,8 +220,9 @@ sub _job_handler {
     _debug(sprintf('job: %s -> server: %s - queue: %s', $job->handle, $server, $config->{'remoteQueue'}));
     _debug($config);
 
-    my $client = $self->_get_client($server);
-    my $data   = $job->arg;
+    my $client  = $self->_get_client($server);
+    my $data    = $job->arg;
+    my $size_in = length($data);
 
     if($config->{'decrypt'}) {
         # decrypt data with local password
@@ -244,8 +246,15 @@ sub _job_handler {
         # encrypt data with new remote password
         $data = $self->_encrypt($data, $config->{'encrypt'});
     }
+    my $size_out = length($data);
 
-    $metrics{$config->{'localQueue'}}++;
+    # set metrics
+    $metrics_counter{'queue_jobs_'.$config->{'localQueue'}}++;
+    $metrics_counter{'total_jobs'}++;
+
+    $metrics_bytes{'bytes_in'}  += $size_in;
+    $metrics_bytes{'bytes_out'} += $size_out;
+    $metrics_bytes{'bytes_out_'.$config->{'localQueue'}} += $size_out;
 
     $client->dispatch_background($config->{'remoteQueue'}, $data, { uniq => $job->handle });
     return(1);
@@ -258,20 +267,30 @@ sub _status_handler {
     _debug(sprintf('job: %s -> status request', $job->handle));
     _debug($config);
 
+    # make sure we always have some basic metrics set
+    $metrics_counter{'total_jobs'} += 0;
+    $metrics_bytes{'bytes_in'}     += 0;
+    $metrics_bytes{'bytes_out'}    += 0;
+
     # count queues
     my $queue_nr = 0;
     for my $server (sort keys %{$self->{'queues'}}) {
         for my $queue (sort keys %{$self->{'queues'}->{$server}}) {
-            if($self->{'queues'}->{$server}->{$queue}->{'localQueue'}) {
+            my $queue_name = $self->{'queues'}->{$server}->{$queue}->{'localQueue'};
+            if($queue_name) {
                 $queue_nr++;
-                $metrics{$self->{'queues'}->{$server}->{$queue}->{'localQueue'}} += 0;
+                $metrics_counter{'queue_jobs_'.$queue_name} += 0;
+                $metrics_bytes{'bytes_out_'.$queue_name}    += 0;
             }
         }
     }
     my $perfdata = sprintf("server=%d queues=%d", scalar keys %{$self->{'queues'}}, $queue_nr);
 
-    for my $q (sort keys %metrics) {
-        $perfdata .= sprintf(" '%s'=%dc", $q, $metrics{$q});
+    for my $q (sort keys %metrics_counter) {
+        $perfdata .= sprintf(" '%s'=%dc", $q, $metrics_counter{$q});
+    }
+    for my $q (sort keys %metrics_bytes) {
+        $perfdata .= sprintf(" '%s'=%db", $q, $metrics_bytes{$q});
     }
 
     return(sprintf("proxy version v%s running.|%s",
@@ -436,8 +455,11 @@ sub _reset_counter_and_caches {
     my($self) = @_;
     $self->{'clients_cache'} = {};
     $self->{'cipher_cache'}  = {};
-    for my $key (sort keys %{$metrics}) {
-        delete $metrics->{$key};
+    for my $key (sort keys %metrics_counter) {
+        delete $metrics_counter{$key};
+    }
+    for my $key (sort keys %metrics_bytes) {
+        delete $metrics_bytes{$key};
     }
     return;
 }

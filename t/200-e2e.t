@@ -104,8 +104,8 @@ _cleanup();
 exit(0);
 
 sub _cleanup {
-    kill('TERM', $gearmand_pid);
-    kill('TERM', $proxy_pid);
+    kill('TERM', $gearmand_pid) if $gearmand_pid;
+    kill('TERM', $proxy_pid) if $proxy_pid;
     unlink($gearmand_pidfile);
     unlink($gearmand_logfile);
     unlink($proxy_pidfile);
