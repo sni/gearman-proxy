@@ -130,8 +130,7 @@ sub _work {
     }
 
     # clear client connection cache and ciphers
-    $self->{'clients_cache'} = {};
-    $self->{'cipher_cache'}  = {};
+    $self->_reset_counter_and_caches();
 
     # create one worker per uniq server
     for my $server (keys %{$self->{'queues'}}) {
@@ -429,6 +428,18 @@ sub _get_client {
         _enable_tcp_keepalive($client);
         $client;
     });
+}
+
+#################################################
+# clear client connection cache and ciphers
+sub _reset_counter_and_caches {
+    my($self) = @_;
+    $self->{'clients_cache'} = {};
+    $self->{'cipher_cache'}  = {};
+    for my $key (sort keys %{$metrics}) {
+        delete $metrics->{$key};
+    }
+    return;
 }
 
 #################################################
