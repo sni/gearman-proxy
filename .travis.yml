@@ -12,9 +12,11 @@ addons:
     - cpanminus
     - libmodule-install-perl
     - libgearman-client-perl
-    - libtest-pod-coverage-perl
     - libcrypt-rijndael-perl
     - libfile-slurp-perl
+    - libtest-pod-coverage-perl
+    - libtest-pod-perl
+    - libtest-perl-critic-perl
 before_install:
   - sudo apt-get update
   - cpanm -q -f --notest --no-man-pages Test::Vars
