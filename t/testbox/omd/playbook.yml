@@ -1,0 +1,63 @@
+---
+- hosts: all
+  tasks:
+
+# machine preparation
+  - yum:
+      name:
+        - perl-Test-Harness
+        - gdb
+        - strace
+        - inotify-tools
+      state: present
+
+# omd site
+  - shell: omd config demo set APACHE_MODE own
+  - shell: omd config demo set MOD_GEARMAN on
+  - shell: omd config demo set GEARMAN_PROXY on
+  - shell: "sudo su - demo -c 'set_admin_password omd'"
+  - shell: "sudo su - demo -c 'echo demo > etc/mod-gearman/secret.key'"
+  - shell: rm /omd/sites/demo/etc/naemon/conf.d/*.cfg
+  - copy:
+      src: /root/test.cfg
+      dest: /omd/sites/demo/etc/naemon/conf.d/test.cfg
+      owner: demo
+      group: demo
+  - lineinfile:
+      path: /omd/sites/demo/etc/init.d/gearman_proxy
+      regexp: '^\s*PROXY=\$OMD_ROOT'
+      line: 'PROXY=/src/gearman_proxy.pl'
+  - lineinfile:
+      path: /omd/sites/demo/etc/init.d/gearman_proxy
+      regexp: '^export PERL5LIB=.*src'
+      line: 'export PERL5LIB="/src/lib/:$PERL5LIB"'
+      insertafter: 'END INIT INFO'
+  - copy:
+      src: /root/proxy.cfg
+      dest: /omd/sites/demo/etc/mod-gearman/gearman_proxy.cfg
+      owner: demo
+      group: demo
+  - name: enable build watcher
+    file:
+      src: /src/t/testbox/omd/build_watcher.init
+      dest: /omd/sites/demo/etc/init.d/build_watcher
+      owner: demo
+      group: demo
+      state: link
+  - name: enable build watcher
+    file:
+      src: ../init.d/build_watcher
+      dest: /omd/sites/demo/etc/rc.d/10-build_watcher
+      owner: demo
+      group: demo
+      state: link
+
+
+# create worker1 site
+  - shell: omd create worker1
+  - shell: omd config worker1 set APACHE_MODE off
+  - shell: omd config worker1 set CORE none
+  - shell: omd config worker1 set MOD_GEARMAN on
+  - shell: omd config worker1 set GEARMAND_PORT 127.0.0.1:4731
+  - shell: "sudo su - worker1 -c 'echo worker1 > etc/mod-gearman/secret.key'"
+  - shell: omd start worker1

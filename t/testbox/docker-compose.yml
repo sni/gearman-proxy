@@ -1,0 +1,12 @@
+version: "2.3"
+
+services:
+  omd:
+    build: omd/
+    ports:
+        - "3000:80"
+    volumes:
+        - ../../:/src:ro
+    # required for strace and gdb
+    cap_add:
+        - SYS_PTRACE

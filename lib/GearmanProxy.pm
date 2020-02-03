@@ -287,10 +287,10 @@ sub _status_handler {
     my $perfdata = sprintf("server=%d queues=%d", scalar keys %{$self->{'queues'}}, $queue_nr);
 
     for my $q (sort keys %metrics_counter) {
-        $perfdata .= sprintf(" '%s'=%dc", $q, $metrics_counter{$q});
+        $perfdata .= sprintf(" '%s'=%dc;;;", $q, $metrics_counter{$q});
     }
     for my $q (sort keys %metrics_bytes) {
-        $perfdata .= sprintf(" '%s'=%db", $q, $metrics_bytes{$q});
+        $perfdata .= sprintf(" '%s'=%db;;;", $q, $metrics_bytes{$q});
     }
 
     return(sprintf("proxy version v%s running.|%s",

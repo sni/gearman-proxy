@@ -1,6 +1,6 @@
 This file documents the revision history for the Gearman Proxy
 
-2.00     Fri Jan 31 10:02:47 CET 2020
+2.00     Mon Feb  3 14:36:53 CET 2020
           - add basic metrics and status worker
           - add data_callback option
           - add de/encrypt options

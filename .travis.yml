@@ -1,6 +1,8 @@
 sudo: required
 dist: xenial
 language: generic
+services:
+  - docker
 addons:
   apt:
     packages:
