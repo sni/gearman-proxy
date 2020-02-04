@@ -20,6 +20,18 @@ addons:
 before_install:
   - sudo apt-get update
   - cpanm -q -f --notest --no-man-pages Test::Vars
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::CodeLayout::RequireFinalSemicolon
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::CodeLayout::RequireTrailingCommaAtNewline
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::Documentation::RequireEndBeforeLastPod
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::Modules::ProhibitPOSIXimport
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::NamingConventions::ProhibitMixedCaseSubs
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::NamingConventions::ProhibitMixedCaseVars
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitAccessOfPrivateData
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitArrayAssignAref
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitDuplicateHashKeys
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitEmptyCommas
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitNullStatements
+  - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitUnknownBackslash
 
 install:
   - perl Makefile.PL || exit 1
