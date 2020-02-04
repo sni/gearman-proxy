@@ -4,7 +4,7 @@ use Test::More;
 
 my $filter = $ARGV[0];
 my $cmds = [
-  "grep -nr 'TODO' lib/. *.pl t/",
+  "grep -nr 'TODO' ./lib/. ./script/*.pl ./t/",
 ];
 
 # find all TODOs

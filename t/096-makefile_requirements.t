@@ -11,7 +11,7 @@ my $reqs = _get_reqs();
 
 # then get all requirements
 my $all_used = {};
-my $files    = _get_files('lib', '*.pl');
+my $files    = _get_files('lib', 'script/*.pl');
 my $packages = _get_packages($files);
 for my $file (@{$files}) {
   my $subs    = _get_modules_from_subs($file);

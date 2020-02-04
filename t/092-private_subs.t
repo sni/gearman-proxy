@@ -3,7 +3,7 @@ use warnings;
 use Test::More;
 use File::Slurp qw/read_file/;
 
-open(my $ph, '-|', 'bash -c "find ./*.pl ./lib -type f" 2>&1') or die('find failed: '.$!);
+open(my $ph, '-|', 'bash -c "find ./script/*.pl ./lib -type f" 2>&1') or die('find failed: '.$!);
 while(<$ph>) {
     my $line = $_;
     chomp($line);

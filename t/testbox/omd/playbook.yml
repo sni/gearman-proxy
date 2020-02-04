@@ -26,7 +26,7 @@
   - lineinfile:
       path: /omd/sites/demo/etc/init.d/gearman_proxy
       regexp: '^\s*PROXY=\$OMD_ROOT'
-      line: 'PROXY=/src/gearman_proxy.pl'
+      line: 'PROXY=/src/script/gearman_proxy.pl'
   - lineinfile:
       path: /omd/sites/demo/etc/init.d/gearman_proxy
       regexp: '^export PERL5LIB=.*src'

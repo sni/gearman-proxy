@@ -12,7 +12,7 @@ function finish {
 trap finish EXIT
 
 # keep watching for changes
-while inotifywait -q -e close_write /src/gearman_proxy.pl /src/lib/GearmanProxy.pm; do
+while inotifywait -q -e close_write /src/script/gearman_proxy.pl /src/lib/GearmanProxy.pm; do
   sleep 1
   omd restart gearman_proxy
 done

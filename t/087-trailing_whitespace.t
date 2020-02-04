@@ -2,7 +2,7 @@ use strict;
 use warnings;
 use Test::More;
 
-open(my $ph, '-|', 'bash -c "find ./lib t/*.t ./*.pl -type f" 2>&1') or die('find failed: '.$!);
+open(my $ph, '-|', 'bash -c "find ./lib ./t/*.t ./script/*.pl -type f" 2>&1') or die('find failed: '.$!);
 while(<$ph>) {
     my $line = $_;
     chomp($line);

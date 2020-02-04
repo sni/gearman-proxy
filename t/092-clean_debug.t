@@ -3,7 +3,7 @@ use warnings;
 use Test::More;
 
 my $cmds = {
-  "grep -nr 'print STDERR Dumper' lib/ t/ *.pl" => {},
+  "grep -nr 'print STDERR Dumper' ./lib/ ./t/ ./script/*.pl" => {},
 };
 
 # find all missed debug outputs

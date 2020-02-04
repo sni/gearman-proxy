@@ -40,7 +40,7 @@ my $proxy_pid;
 my $proxy_pidfile  = "proxy.pid";
 my $proxy_logfile  = "proxy.log";
 {
-    my $cmdline  = "./gearman_proxy.pl --pid=$proxy_pidfile --log=$proxy_logfile --config=t/gearman_proxy.cfg 2>&1 &";
+    my $cmdline  = "./script/gearman_proxy.pl --pid=$proxy_pidfile --log=$proxy_logfile --config=t/gearman_proxy.cfg 2>&1 &";
     ok(1, $cmdline);
     system($cmdline);
     # wait till its started
