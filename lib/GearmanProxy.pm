@@ -41,8 +41,12 @@ our $VERSION = "2.0";
 my $logFile;
 my $pidFile;
 my $debug_log_enabled;
+my $max_retries     = 3;   # number of job retries
+my $backlog_timeout = 600; # seconds until a job will be removed from the backlog
 my %metrics_counter :shared;
 my %metrics_bytes   :shared;
+my %failed_clients  :shared;
+my %backlog         :shared;
 
 #################################################
 
@@ -93,7 +97,7 @@ sub run {
     }
 
     while(1) {
-        $self->_work();
+        $self->_work_loop();
     }
 
     return(0);
@@ -119,7 +123,7 @@ sub _signal_handler {
 }
 
 #################################################
-sub _work {
+sub _work_loop {
     my($self) = @_;
 
     $self->_read_config($self->{'args'}->{'configFiles'});
@@ -127,7 +131,8 @@ sub _work {
     _debug($self->{'queues'});
 
     if(!defined $self->{'queues'} || scalar keys %{$self->{'queues'}} == 0) {
-        _warn('no queues configured');
+        _error('no queues configured, exiting');
+        exit(3);
     }
 
     # clear client connection cache and ciphers
@@ -135,7 +140,15 @@ sub _work {
 
     # create one worker per uniq server
     for my $server (keys %{$self->{'queues'}}) {
-        threads->create('_worker', $self, $server, $self->{'queues'}->{$server});
+        threads->create('_forward_worker', $self, $server, $self->{'queues'}->{$server});
+    }
+
+    # create backlog worker thread
+    threads->create('_backlog_worker', $self);
+
+    # create status worker thread
+    if($self->{'statusqueue'}) {
+        threads->create('_status_worker', $self);
     }
 
     # wait till worker finish
@@ -147,34 +160,19 @@ sub _work {
 }
 
 #################################################
-sub _worker {
+sub _forward_worker {
     my($self, $server, $queues) = @_;
     _debug("worker thread started");
 
     my $keep_running = 1;
-    my $worker;
-    local $SIG{'HUP'}  = sub {
-        _debug(sprintf("worker thread exits by signal %s", "HUP"));
-        $worker->reset_abilities() if $worker;
-        $keep_running = 0;
-    };
-
     while($keep_running) {
-        my $start = time();
-        $worker = Gearman::Worker->new(job_servers => [ $server ]);
+        my $worker = Gearman::Worker->new(job_servers => [ $server ]);
         _debug(sprintf("worker created for %s", $server));
         my $errors = 0;
         for my $queue (sort keys %{$queues}) {
-            if($queues->{$queue}->{'status'}) {
-                if(!$worker->register_function($queue => sub { $self->_status_handler($queues->{$queue}, @_) } )) {
-                    _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
-                    $errors++;
-                }
-            } else {
-                if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
-                    _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
-                    $errors++;
-                }
+            if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
+                _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
+                $errors++;
             }
         }
 
@@ -182,32 +180,32 @@ sub _worker {
             _error(sprintf("gearman daemon %s seems to be down", $server));
         }
 
-        _enable_tcp_keepalive($worker);
+        $keep_running = $self->_worker_work($worker);
+    }
+    return(threads->exit());
+}
 
-        $worker->work(
-            on_start => sub {
-                my($jobhandle) = @_;
-                _debug(sprintf("[%s] job starting", $jobhandle));
-            },
-            on_complete => sub {
-                my($jobhandle, $result) = @_;
-                _debug(sprintf("[%s] job completed: %s", $jobhandle, $result));
-            },
-            on_fail => sub {
-                my($jobhandle, $err) = @_;
-                _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
-            },
-            stop_if => sub {
-                my($is_idle, $last_job_time) = @_;
-                _debug(sprintf("stop_if: is_idle=%d - last_job_time=%s keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
-                return 1 if ! $keep_running;
-                if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
-                    _debug(sprintf("refreshing worker after 1min idle"));
-                    return 1;
-                }
-                return;
-            },
-        );
+#################################################
+sub _status_worker {
+    my($self) = @_;
+    _debug("status worker thread started");
+
+    my $keep_running = 1;
+    my($server, $queue) = split(/\//mx, $self->{'statusqueue'});
+    while($keep_running) {
+        my $worker = Gearman::Worker->new(job_servers => [ $server ]);
+        _debug(sprintf("worker created for %s", $server));
+        my $errors = 0;
+        if(!$worker->register_function($queue => sub { $self->_status_handler($queue, @_) } )) {
+            _warn(sprintf("register status queue failed on %s for queue %s", $server, $queue));
+            $errors++;
+        }
+
+        if($errors) {
+            _error(sprintf("gearman daemon %s seems to be down", $server));
+        }
+
+        $keep_running = $self->_worker_work($worker);
     }
     return(threads->exit());
 }
@@ -216,11 +214,10 @@ sub _worker {
 sub _job_handler {
     my($self, $config, $job) = @_;
 
-    my $server = $config->{'remoteHost'};
-    _debug(sprintf('job: %s -> server: %s - queue: %s', $job->handle, $server, $config->{'remoteQueue'}));
+    my $remoteHost = $config->{'remoteHost'};
+    _debug(sprintf('job: %s -> server: %s - queue: %s', $job->handle, $remoteHost, $config->{'remoteQueue'}));
     _debug($config);
 
-    my $client  = $self->_get_client($server);
     my $data    = $job->arg;
     my $size_in = length($data);
 
@@ -249,14 +246,16 @@ sub _job_handler {
     my $size_out = length($data);
 
     # set metrics
-    $metrics_counter{'queue_jobs_'.$config->{'localQueue'}}++;
+    $metrics_counter{$config->{'localQueue'}.'::jobs'}++;
     $metrics_counter{'total_jobs'}++;
 
     $metrics_bytes{'bytes_in'}  += $size_in;
     $metrics_bytes{'bytes_out'} += $size_out;
-    $metrics_bytes{'bytes_out_'.$config->{'localQueue'}} += $size_out;
+    $metrics_bytes{$config->{'localQueue'}.'::bytes_out'} += $size_out;
 
-    $client->dispatch_background($config->{'remoteQueue'}, $data, { uniq => $job->handle });
+    # forward data to remote server
+    $self->_dispatch_task($remoteHost, $config->{'remoteQueue'}, $data, $job->handle);
+
     return(1);
 }
 
@@ -268,9 +267,10 @@ sub _status_handler {
     _debug($config);
 
     # make sure we always have some basic metrics set
-    $metrics_counter{'total_jobs'} += 0;
-    $metrics_bytes{'bytes_in'}     += 0;
-    $metrics_bytes{'bytes_out'}    += 0;
+    $metrics_counter{'total_jobs'}   += 0;
+    $metrics_bytes{'bytes_in'}       += 0;
+    $metrics_bytes{'bytes_out'}      += 0;
+    $metrics_counter{'total_errors'} += 0;
 
     # count queues
     my $queue_nr = 0;
@@ -279,13 +279,14 @@ sub _status_handler {
             my $queue_name = $self->{'queues'}->{$server}->{$queue}->{'localQueue'};
             if($queue_name) {
                 $queue_nr++;
-                $metrics_counter{'queue_jobs_'.$queue_name} += 0;
-                $metrics_bytes{'bytes_out_'.$queue_name}    += 0;
+                $metrics_counter{$queue_name.'::jobs'} += 0;
+                $metrics_bytes{$queue_name.'::bytes_out'}    += 0;
             }
         }
     }
     my $perfdata = sprintf("server=%d queues=%d", scalar keys %{$self->{'queues'}}, $queue_nr);
 
+    # TODO: fix order
     for my $q (sort keys %metrics_counter) {
         $perfdata .= sprintf(" '%s'=%dc;;;", $q, $metrics_counter{$q});
     }
@@ -293,10 +294,207 @@ sub _status_handler {
         $perfdata .= sprintf(" '%s'=%db;;;", $q, $metrics_bytes{$q});
     }
 
-    return(sprintf("proxy version v%s running.|%s",
+    my($exit, $additional_info, $backlog_nr) = (0, "", 0);
+    {
+        lock(%backlog);
+        $backlog_nr = _count_sub_elements(\%backlog);
+    };
+    my $failed_nr  = scalar keys %failed_clients;
+    if($failed_nr > 0) {
+        $additional_info = sprintf(" %d server%s failed: %s.",
+                            $failed_nr,
+                            $failed_nr != 1 ? "s" : "",
+                            join(", ", sort keys %failed_clients),
+                        );
+        $exit = 1;
+    }
+    if($backlog_nr > 0) {
+        $additional_info .= sprintf(" backlog contains %d jobs.", $backlog_nr);
+        $exit = 1;
+        $perfdata .= sprintf(" 'backlog'=%d;;;", $backlog_nr);
+    }
+
+    return(sprintf("%d:%s - proxy version v%s running.%s|%s",
+                $exit,
+                _status_name($exit),
                 $VERSION,
+                $additional_info,
                 $perfdata,
     ));
+}
+
+#################################################
+sub _dispatch_task {
+    my($self, $server, $queue, $data, $uniq, $backlog_entry) = @_;
+    my($task, $job_handle);
+    $task = Gearman::Task->new($queue, \$data, {
+        uniq        => $uniq,
+        retry_count => $backlog_entry ? undef : $max_retries,
+        on_fail     => sub {
+            my($err) = @_;
+            $err = "unknown error" unless $err;
+            $metrics_counter{'total_errors'}++;
+            $failed_clients{$server} = $err;
+            if($backlog_entry) {
+                # already failed previously, just put it back in the backlog
+                _debug(sprintf("retrying job %s for %s/%s still fails", $uniq, $server, $queue));
+                {
+                    lock %backlog;
+                    if(!defined $backlog{$server}) {
+                        $backlog{$server} = &share([]);
+                    }
+                    unshift(@{$backlog{$server}}, $backlog_entry);
+                };
+            } else {
+                _error(sprintf("[%s] forwarding to %s failed: %s", $uniq, $server, $err));
+                {
+                    lock(%backlog);
+                    if(!defined $backlog{$server}) {
+                        $backlog{$server} = &share([]);
+                    }
+                    push @{$backlog{$server}}, shared_clone({
+                        time   => time(),
+                        server => $server,
+                        queue  => $queue,
+                        data   => $data,
+                        uniq   => $uniq,
+                    });
+                    _error(sprintf("backlog contains %d jobs for %d servers", _count_sub_elements(\%backlog), scalar keys %backlog));
+                };
+            }
+        },
+        on_retry    => sub {
+            my($attempt) = @_;
+            _debug(sprintf("[%s] forwarding to server %s failed, retying: attempt %d/%d", $uniq, $server, $attempt, $max_retries));
+        },
+        on_complete => sub {
+            delete $failed_clients{$server};
+        },
+    });
+    my $client  = $self->_get_client($server);
+    my $taskset = $client->new_task_set;
+    $taskset->add_task($task);
+    $job_handle = $client->dispatch_background($task);
+    if($job_handle) {
+        _debug(sprintf("[%s] background job dispatched to %s", $uniq, $server));
+        delete $failed_clients{$server};
+    } else {
+        _debug(sprintf("[%s] background job dispatching failed for %s", $uniq, $server));
+    }
+    return($job_handle);
+}
+
+#################################################
+sub _worker_work {
+    my($self, $worker) = @_;
+
+    my $start = time();
+    my $keep_running = 1;
+    local $SIG{'HUP'}  = sub {
+        _debug(sprintf("worker thread exits by signal %s", "HUP"));
+        $worker->reset_abilities() if $worker;
+        $keep_running = 0;
+    };
+
+    _enable_tcp_keepalive($worker);
+
+    $worker->work(
+        on_start => sub {
+            my($jobhandle) = @_;
+            _debug(sprintf("[%s] job starting", $jobhandle));
+        },
+        on_complete => sub {
+            my($jobhandle, $result) = @_;
+            _debug(sprintf("[%s] job completed: %s", $jobhandle, $result));
+        },
+        on_fail => sub {
+            my($jobhandle, $err) = @_;
+            $err = "unknown worker error" unless $err;
+            next if $err =~ m/\Qgot work_complete for unknown handle:\E/mx; # not a problem
+            _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
+        },
+        stop_if => sub {
+            my($is_idle, $last_job_time) = @_;
+            _debug(sprintf("stop_if: is_idle=%d - last_job_time=%s keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
+            return 1 if ! $keep_running;
+            if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
+                _debug(sprintf("refreshing worker after 1min idle"));
+                return 1;
+            }
+            return;
+        },
+    );
+    return($keep_running);
+}
+
+#################################################
+sub _backlog_worker {
+    my($self) = @_;
+    _debug("backlog worker thread started");
+
+    # clean backlog from none-existing client servers
+    my $existing_clients = {};
+    for my $s (sort keys %{$self->{'queues'}}) {
+        for my $q (sort values %{$self->{'queues'}->{$s}}) {
+            my $server = $q->{'remoteHost'};
+            next unless $server;
+            $existing_clients->{$server} = 1;
+        }
+    }
+    {
+        lock(%backlog);
+        for my $s (sort keys %backlog) {
+            delete $backlog{$s} unless $existing_clients->{$s};
+        }
+    }
+
+    my $keep_running = 1;
+    local $SIG{'HUP'}  = sub {
+        _debug(sprintf("backlog worker thread exits by signal %s", "HUP"));
+        $keep_running = 0;
+    };
+
+    while($keep_running) {
+        my($count, $server) = (0, []);
+        {
+            lock %backlog;
+            $count  = scalar keys %backlog;
+            $server = [sort keys %backlog];
+        };
+        if($count == 0) {
+            sleep 1;
+            next;
+        }
+
+        # retry failed jobs
+        for my $s (@{$server}) {
+            while(1) {
+                my $job;
+                {
+                    lock %backlog;
+                    last unless $backlog{$s};
+                    $job = shift @{$backlog{$s}};
+                    if(!$job) {
+                        delete $backlog{$s};
+                    }
+                };
+                last unless $job;
+                if($job->{'time'} < time() - $backlog_timeout) {
+                    _debug(sprintf("discarding job %s for %s/%s, backlog timeout reached, trying since: %s", $job->{'uniq'}, $job->{'server'}, , $job->{'queue'}, scalar localtime $job->{'time'}));
+                    next;
+                }
+                _debug(sprintf("retrying job %s for %s/%s", $job->{'uniq'}, $job->{'server'}, $job->{'queue'}));
+                if($self->_dispatch_task($job->{'server'}, $job->{'queue'}, $job->{'data'}, $job->{'uniq'}, $job)) {
+                    _debug(sprintf("retrying job %s for %s/%s finally worked", $job->{'uniq'}, $job->{'server'}, $job->{'queue'}));
+                } else {
+                    # still failed, it does not make sense to try more from this server
+                    last;
+                }
+            }
+        }
+        sleep(15);
+    }
+    return(threads->exit());
 }
 
 #################################################
@@ -345,13 +543,9 @@ sub _read_config {
     }
 
     $self->{'logfile'}     = $self->{'args'}->{'logFile'} // $logfile // 'stdout';
-    $self->{'debug'}       = $self->{'args'}->{'debug'} // $debug // 0;
+    $self->{'debug'}       = $self->{'args'}->{'debug'} || $debug // 0;
     $self->{'queues'}      = $self->_parse_queues($queues);
-
-    if($statusqueue) {
-        my($server, $queue) = split(/\//mx, $statusqueue);
-        $self->{'queues'}->{$server}->{$queue} = { "status" => 1 };
-    }
+    $self->{'statusqueue'} = $statusqueue;
 
     $debug_log_enabled = $self->{'debug'};
     $logFile           = $self->{'logfile'};
@@ -462,6 +656,31 @@ sub _reset_counter_and_caches {
         delete $metrics_bytes{$key};
     }
     return;
+}
+
+#################################################
+# count all elements in hash of hashes
+sub _count_sub_elements {
+    my($el) = @_;
+    my $count = 0;
+    for my $s (keys %{$el}) {
+        if(ref $el->{$s} eq 'HASH') {
+            $count += scalar keys %{$el->{$s}};
+        }
+        elsif(ref $el->{$s} eq 'ARRAY') {
+            $count += scalar @{$el->{$s}};
+        }
+    }
+    return($count);
+}
+
+#################################################
+sub _status_name {
+    my($status) = @_;
+    if($status == 0) { return("OK"); }
+    if($status == 1) { return("WARNING"); }
+    if($status == 2) { return("CRITICAL"); }
+    return("UNKNOWN");
 }
 
 #################################################

@@ -1,5 +1,9 @@
 This file documents the revision history for the Gearman Proxy
 
+next:
+          - add backlog worker
+          - add more performance data
+
 2.00     Tue Feb  4 11:49:11 CET 2020
           - add basic metrics and status worker
           - add data_callback option
