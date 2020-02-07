@@ -26,5 +26,5 @@ use Test::More tests => 9;
     like($res, "/check_gearman OK/", "result contains OM");
     like($res, "/queues=2/", "result contains queues");
     like($res, "/server=2/", "result contains server");
-    like($res, "/queue_jobs_hostgroup_worker1'=\\d+c/", "result contains queue_jobs_hostgroup_worker1");
+    like($res, "/'hostgroup_worker1::jobs'=\\dc/", "result contains hostgroup_worker1::jobs");
 };

@@ -286,19 +286,24 @@ sub _status_handler {
     }
     my $perfdata = sprintf("server=%d queues=%d", scalar keys %{$self->{'queues'}}, $queue_nr);
 
-    # TODO: fix order
-    for my $q (sort keys %metrics_counter) {
-        $perfdata .= sprintf(" '%s'=%dc;;;", $q, $metrics_counter{$q});
-    }
-    for my $q (sort keys %metrics_bytes) {
-        $perfdata .= sprintf(" '%s'=%db;;;", $q, $metrics_bytes{$q});
+    my $merged = {%metrics_counter, %metrics_bytes};
+    my $keys = [sort keys %{$merged}];
+    # move those with :: at the end
+    $keys = [grep(!/::/mx, @{$keys}), grep(/::/mx, @{$keys})];
+    for my $key (@{$keys}) {
+        if($metrics_counter{$key}) {
+            $perfdata .= sprintf(" '%s'=%dc;;;", $key, $metrics_counter{$key});
+        }
+        if($metrics_bytes{$key}) {
+            $perfdata .= sprintf(" '%s'=%db;;;", $key, $metrics_bytes{$key});
+        }
     }
 
     my($exit, $additional_info, $backlog_nr) = (0, "", 0);
     {
         lock(%backlog);
         $backlog_nr = _count_sub_elements(\%backlog);
-    };
+    }
     my $failed_nr  = scalar keys %failed_clients;
     if($failed_nr > 0) {
         $additional_info = sprintf(" %d server%s failed: %s.",
@@ -344,7 +349,7 @@ sub _dispatch_task {
                         $backlog{$server} = &share([]);
                     }
                     unshift(@{$backlog{$server}}, $backlog_entry);
-                };
+                }
             } else {
                 _error(sprintf("[%s] forwarding to %s failed: %s", $uniq, $server, $err));
                 {
@@ -360,7 +365,7 @@ sub _dispatch_task {
                         uniq   => $uniq,
                     });
                     _error(sprintf("backlog contains %d jobs for %d servers", _count_sub_elements(\%backlog), scalar keys %backlog));
-                };
+                }
             }
         },
         on_retry    => sub {
@@ -460,7 +465,7 @@ sub _backlog_worker {
             lock %backlog;
             $count  = scalar keys %backlog;
             $server = [sort keys %backlog];
-        };
+        }
         if($count == 0) {
             sleep 1;
             next;
@@ -477,10 +482,10 @@ sub _backlog_worker {
                     if(!$job) {
                         delete $backlog{$s};
                     }
-                };
+                }
                 last unless $job;
                 if($job->{'time'} < time() - $backlog_timeout) {
-                    _debug(sprintf("discarding job %s for %s/%s, backlog timeout reached, trying since: %s", $job->{'uniq'}, $job->{'server'}, , $job->{'queue'}, scalar localtime $job->{'time'}));
+                    _debug(sprintf("discarding job %s for %s/%s, backlog timeout reached, trying since: %s", $job->{'uniq'}, $job->{'server'}, $job->{'queue'}, scalar localtime $job->{'time'}));
                     next;
                 }
                 _debug(sprintf("retrying job %s for %s/%s", $job->{'uniq'}, $job->{'server'}, $job->{'queue'}));
