@@ -36,7 +36,7 @@ use File::Slurp qw/read_file/;
 use Time::HiRes qw/gettimeofday/;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
 
-our $VERSION = "2.0";
+our $VERSION = "2.01";
 
 my $logFile;
 my $pidFile;
