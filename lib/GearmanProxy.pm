@@ -140,7 +140,24 @@ sub _work_loop {
 
     # create one worker per uniq server
     for my $server (keys %{$self->{'queues'}}) {
-        threads->create('_forward_worker', $self, $server, $self->{'queues'}->{$server});
+        my $async_queues = {};
+        my $sync_queues  = {};
+        for my $key (sort keys %{$self->{'queues'}->{$server}}) {
+            my $q = $self->{'queues'}->{$server}->{$key};
+            if($q->{'async'}) {
+                $async_queues->{$key} = $q;
+            } else {
+                $sync_queues->{$key} = $q;
+            }
+        }
+        threads->create('_forward_worker', $self, $server, $async_queues);
+
+        for my $key (sort keys %{$sync_queues}) {
+            my $q = $sync_queues->{$key};
+            for my $x (1..$q->{'worker'}) {
+                threads->create('_forward_worker', $self, $server, { $key => $sync_queues->{$key} });
+            }
+        }
     }
 
     # create backlog worker thread
@@ -260,14 +277,16 @@ sub _job_handler {
     $metrics_bytes{$config->{'localQueue'}.'::bytes_out'} += $size_out;
 
     # forward data to remote server
-    $self->_dispatch_task({
+    my $data = $self->_dispatch_task({
                 server => $remoteHost,
                 queue  => $config->{'remoteQueue'},
                 data   => $data,
                 uniq   => $job->handle,
+                async  => $config->{'async'},
     });
 
-    return(1);
+    return("job submitted as background task") if $config->{'async'};
+    return($data);
 }
 
 #################################################
@@ -348,6 +367,7 @@ sub _status_handler {
 #       data    => "payload",
 #       uniq    => "optional uniq identifier",
 #       backlog => "optional backlog reference",
+#       async   => "optional flag to disable asyncronous jobs",
 #    }
 #
 sub _dispatch_task {
@@ -404,6 +424,10 @@ sub _dispatch_task {
     my $client  = $self->_get_client($server);
     my $taskset = $client->new_task_set;
     $taskset->add_task($task);
+    if(!$options->{'async'}) {
+        my $result = $client->do_task($task);
+        return($result);
+    }
     my $job_handle = $client->dispatch_background($task);
     if($job_handle) {
         _debug(sprintf("[%s] background job dispatched to %s", $uniq, $server));
@@ -622,6 +646,10 @@ sub _parse_queues {
                 _fatal(sprintf("encrypt/decrypt requires additional modules (Crypt::Rijndael and MIME::Base64) which failed to load: %s", $err));
             }
         }
+
+        # set some defaults
+        $to->{'async'}  = $to->{'async'}  // 1;
+        $to->{'worker'} = $to->{'worker'} // 1;
 
         $queues->{$fromserver}->{$fromqueue} = $to;
     }

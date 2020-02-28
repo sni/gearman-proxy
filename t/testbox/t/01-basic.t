@@ -24,9 +24,9 @@ use Test::More tests => 13;
     my $res = `/omd/sites/demo/lib/monitoring-plugins/check_gearman -H 127.0.0.1:4730 -q proxy_status -s check`;
     is($?, 0, "check_gearman worked");
     like($res, "/check_gearman OK/", "result contains OK");
-    like($res, "/queues=2/", "result contains queues");
+    like($res, "/queues=3/", "result contains queues");
     like($res, "/server=2/", "result contains server");
-    like($res, "/'hostgroup_worker1::jobs'=\\dc/", "result contains hostgroup_worker1::jobs");
+    like($res, "/'hostgroup_worker1::jobs'=[0-9]+c/", "result contains hostgroup_worker1::jobs");
 };
 
 # run check_gearman on demo worker

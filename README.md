@@ -80,6 +80,8 @@ gearman_proxy.cfg:
         "encrypt"       => "remote password",  # can be "file:path to password file"
         "remoteQueue"   => "192.168.1.33:4730/servicegroup_special",
         "data_callback" => sub { my($data) = @_; $data =~ s/^result_queue=.*$/result_queue=results_servicegroup_special/gmx; return($data); },
+        "async"         => 1, # queue forwards are asynchronous by default, set to 0 to make them synchronous
+        "worker"        => 1, # set the number of worker (for synchronous queues only)
     };
 
 See the Queue Options for detailed description.
@@ -121,6 +123,15 @@ in a variable and use that later.
 
 Name of the daemon and queue where to push the job after processing the other stages. The
 syntax is `ip:port/queue`.
+
+#### async
+
+Queue forwarding happens asynchronous by default, set this option to 0 to enable synchronous forwards.
+If you need the return value of the forwarded job, you have to enable synchronous forwards.
+
+#### worker
+
+Sets the number of workers for synchronous forwards.
 
 ### Other Options
 
