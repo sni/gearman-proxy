@@ -32,6 +32,7 @@ before_install:
   - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitEmptyCommas
   - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitNullStatements
   - cpanm -q -f --notest --no-man-pages Perl::Critic::Policy::ValuesAndExpressions::ProhibitUnknownBackslash
+  - cpanm -q -f --notest --no-man-pages Gearman::Client
 
 install:
   - perl Makefile.PL || exit 1
