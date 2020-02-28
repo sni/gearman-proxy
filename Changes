@@ -1,6 +1,6 @@
 This file documents the revision history for the Gearman Proxy
 
-next:
+2.02     Fri Feb 28 17:01:08 CET 2020
           - add synchronous queues (by using the async/worker option)
           - fix worker exiting on errors
 
