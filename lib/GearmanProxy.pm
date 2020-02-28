@@ -180,7 +180,10 @@ sub _forward_worker {
             _error(sprintf("gearman daemon %s seems to be down", $server));
         }
 
-        $keep_running = $self->_worker_work($worker);
+        eval {
+            $keep_running = $self->_worker_work($worker);
+        };
+        _error($@) if $@;
     }
     return(threads->exit());
 }
@@ -205,7 +208,10 @@ sub _status_worker {
             _error(sprintf("gearman daemon %s seems to be down", $server));
         }
 
-        $keep_running = $self->_worker_work($worker);
+        eval {
+            $keep_running = $self->_worker_work($worker);
+        };
+        _error($@) if $@;
     }
     return(threads->exit());
 }
@@ -331,8 +337,7 @@ sub _status_handler {
 #################################################
 sub _dispatch_task {
     my($self, $server, $queue, $data, $uniq, $backlog_entry) = @_;
-    my($task, $job_handle);
-    $task = Gearman::Task->new($queue, \$data, {
+    my $task = Gearman::Task->new($queue, \$data, {
         uniq        => $uniq,
         retry_count => $backlog_entry ? undef : $max_retries,
         on_fail     => sub {
@@ -379,7 +384,7 @@ sub _dispatch_task {
     my $client  = $self->_get_client($server);
     my $taskset = $client->new_task_set;
     $taskset->add_task($task);
-    $job_handle = $client->dispatch_background($task);
+    my $job_handle = $client->dispatch_background($task);
     if($job_handle) {
         _debug(sprintf("[%s] background job dispatched to %s", $uniq, $server));
         delete $failed_clients{$server};
@@ -415,7 +420,7 @@ sub _worker_work {
         on_fail => sub {
             my($jobhandle, $err) = @_;
             $err = "unknown worker error" unless $err;
-            next if $err =~ m/\Qgot work_complete for unknown handle:\E/mx; # not a problem
+            return if $err =~ m/\Qgot work_complete for unknown handle:\E/mx; # not a problem
             _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
         },
         stop_if => sub {
