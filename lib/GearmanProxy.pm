@@ -150,11 +150,15 @@ sub _work_loop {
                 $sync_queues->{$key} = $q;
             }
         }
-        threads->create('_forward_worker', $self, $server, $async_queues);
+        if(scalar keys %{$async_queues} > 0) {
+            _debug(sprintf("starting single asynchronous worker for %s", $server));
+            threads->create('_forward_worker', $self, $server, $async_queues);
+        }
 
         for my $key (sort keys %{$sync_queues}) {
             my $q = $sync_queues->{$key};
             for my $x (1..$q->{'worker'}) {
+                _debug(sprintf("starting %d/%d synchronous worker for %s", $x, $q->{'worker'}, $key));
                 threads->create('_forward_worker', $self, $server, { $key => $sync_queues->{$key} });
             }
         }
@@ -277,7 +281,7 @@ sub _job_handler {
     $metrics_bytes{$config->{'localQueue'}.'::bytes_out'} += $size_out;
 
     # forward data to remote server
-    my $data = $self->_dispatch_task({
+    my $result = $self->_dispatch_task({
                 server => $remoteHost,
                 queue  => $config->{'remoteQueue'},
                 data   => $data,
@@ -286,7 +290,7 @@ sub _job_handler {
     });
 
     return("job submitted as background task") if $config->{'async'};
-    return($data);
+    return($result);
 }
 
 #################################################
