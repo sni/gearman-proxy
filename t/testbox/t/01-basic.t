@@ -2,7 +2,7 @@
 
 use warnings;
 use strict;
-use Test::More tests => 9;
+use Test::More tests => 13;
 
 # force check of worker PING
 {
@@ -23,8 +23,22 @@ use Test::More tests => 9;
 {
     my $res = `/omd/sites/demo/lib/monitoring-plugins/check_gearman -H 127.0.0.1:4730 -q proxy_status -s check`;
     is($?, 0, "check_gearman worked");
-    like($res, "/check_gearman OK/", "result contains OM");
+    like($res, "/check_gearman OK/", "result contains OK");
     like($res, "/queues=2/", "result contains queues");
     like($res, "/server=2/", "result contains server");
     like($res, "/'hostgroup_worker1::jobs'=\\dc/", "result contains hostgroup_worker1::jobs");
+};
+
+# run check_gearman on demo worker
+{
+    my $res = `/omd/sites/demo/lib/monitoring-plugins/check_gearman -H 127.0.0.1:4730 -q worker_demo -s check`;
+    is($?, 0, "check_gearman worked");
+    like($res, "/check_gearman OK - demo has/", "result contains output");
+};
+
+# run check_gearman on worker1 worker
+{
+    my $res = `/omd/sites/demo/lib/monitoring-plugins/check_gearman -H 127.0.0.1:4730 -q worker_worker1 -s check`;
+    is($?, 0, "check_gearman worked");
+    like($res, "/check_gearman OK - worker1 has/", "result contains output");
 };
