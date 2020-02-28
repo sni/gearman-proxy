@@ -260,7 +260,12 @@ sub _job_handler {
     $metrics_bytes{$config->{'localQueue'}.'::bytes_out'} += $size_out;
 
     # forward data to remote server
-    $self->_dispatch_task($remoteHost, $config->{'remoteQueue'}, $data, $job->handle);
+    $self->_dispatch_task({
+                server => $remoteHost,
+                queue  => $config->{'remoteQueue'},
+                data   => $data,
+                uniq   => $job->handle,
+    });
 
     return(1);
 }
@@ -335,8 +340,23 @@ sub _status_handler {
 }
 
 #################################################
+# $self->_dispatch_task($options)
+#
+#    $options = {
+#       server  => "server name",
+#       queue   => "queue name",
+#       data    => "payload",
+#       uniq    => "optional uniq identifier",
+#       backlog => "optional backlog reference",
+#    }
+#
 sub _dispatch_task {
-    my($self, $server, $queue, $data, $uniq, $backlog_entry) = @_;
+    my($self, $options) = @_;
+    my $server        = $options->{'server'} or die("no server specified");
+    my $queue         = $options->{'queue'}  or die("no queue specified");
+    my $data          = $options->{'data'};
+    my $uniq          = $options->{'uniq'};
+    my $backlog_entry = $options->{'backlog'};
     my $task = Gearman::Task->new($queue, \$data, {
         uniq        => $uniq,
         retry_count => $backlog_entry ? undef : $max_retries,
@@ -494,7 +514,12 @@ sub _backlog_worker {
                     next;
                 }
                 _debug(sprintf("retrying job %s for %s/%s", $job->{'uniq'}, $job->{'server'}, $job->{'queue'}));
-                if($self->_dispatch_task($job->{'server'}, $job->{'queue'}, $job->{'data'}, $job->{'uniq'}, $job)) {
+                if($self->_dispatch_task({ server  => $job->{'server'},
+                                           queue   => $job->{'queue'},
+                                           data    => $job->{'data'},
+                                           uniq    => $job->{'uniq'},
+                                           backlog =>  $job,
+                                        })) {
                     _debug(sprintf("retrying job %s for %s/%s finally worked", $job->{'uniq'}, $job->{'server'}, $job->{'queue'}));
                 } else {
                     # still failed, it does not make sense to try more from this server
