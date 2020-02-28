@@ -37,6 +37,10 @@
       dest: /omd/sites/demo/etc/mod-gearman/gearman_proxy.cfg
       owner: demo
       group: demo
+  - lineinfile:
+      path: /omd/sites/demo/etc/mod-gearman/worker.cfg
+      regexp: 'identifier='
+      line: 'identifier=demo'
   - name: enable build watcher
     file:
       src: /src/t/testbox/omd/build_watcher.init
@@ -60,4 +64,8 @@
   - shell: omd config worker1 set MOD_GEARMAN on
   - shell: omd config worker1 set GEARMAND_PORT 127.0.0.1:4731
   - shell: "sudo su - worker1 -c 'echo worker1 > etc/mod-gearman/secret.key'"
+  - lineinfile:
+      path: /omd/sites/worker1/etc/mod-gearman/worker.cfg
+      regexp: 'identifier='
+      line: 'identifier=worker1'
   - shell: omd start worker1
