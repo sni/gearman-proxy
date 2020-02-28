@@ -26,7 +26,7 @@ use 5.008000;
 use warnings;
 use strict;
 use Gearman::Worker;
-use Gearman::Client;
+use Gearman::Client 2.004;
 use threads;
 use threads::shared;
 use Data::Dumper;
@@ -36,7 +36,7 @@ use File::Slurp qw/read_file/;
 use Time::HiRes qw/gettimeofday/;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
 
-our $VERSION = "2.01";
+our $VERSION = "2.02";
 
 my $logFile;
 my $pidFile;
@@ -440,7 +440,6 @@ sub _worker_work {
         on_fail => sub {
             my($jobhandle, $err) = @_;
             $err = "unknown worker error" unless $err;
-            return if $err =~ m/\Qgot work_complete for unknown handle:\E/mx; # not a problem
             _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
         },
         stop_if => sub {
