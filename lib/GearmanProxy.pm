@@ -302,7 +302,9 @@ sub _status_handler {
     my $data = $job->arg;
     my $perfdatafilter;
     if($data && $data =~ m/perfdatafilter=(\S+)/mx) {
+        ## no critic
         $perfdatafilter = qr($1);
+        ## use critic
     }
 
     # make sure we always have some basic metrics set
