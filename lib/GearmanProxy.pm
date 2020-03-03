@@ -29,18 +29,15 @@ use Gearman::Worker;
 use Gearman::Client 2.004;
 use threads;
 use threads::shared;
-use Data::Dumper;
 use Socket qw(IPPROTO_TCP SOL_SOCKET SO_KEEPALIVE TCP_KEEPIDLE TCP_KEEPINTVL TCP_KEEPCNT);
 use POSIX ();
 use File::Slurp qw/read_file/;
-use Time::HiRes qw/gettimeofday/;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
+use GearmanProxy::Log;
 
 our $VERSION = "2.02-2";
 
-my $logFile;
 my $pidFile;
-my $debug_log_enabled;
 my $max_retries     = 3;   # number of job retries
 my $backlog_timeout = 600; # seconds until a job will be removed from the backlog
 my %metrics_counter :shared;
@@ -82,8 +79,8 @@ sub new {
 sub run {
     my($self) = @_;
 
-    $pidFile           = $self->{'args'}->{'pidFile'};
-    $debug_log_enabled = $self->{'args'}->{'debug'};
+    $pidFile = $self->{'args'}->{'pidFile'};
+    GearmanProxy::Log::loglevel($self->{'debug'} ? 2 : 1);
 
     _debug('command line arguments:');
     _debug($self->{'args'});
@@ -95,6 +92,9 @@ sub run {
         print $fhpid $$;
         close($fhpid);
     }
+
+    # unbuffer output
+    local $| = 1;
 
     while(1) {
         $self->_work_loop();
@@ -127,6 +127,10 @@ sub _work_loop {
     my($self) = @_;
 
     $self->_read_config($self->{'args'}->{'configFiles'});
+    GearmanProxy::Log::loglevel($self->{'debug'} ? 2 : 1);
+    GearmanProxy::Log::logfile($self->{'logfile'});
+    _capture_standard_output_and_errors($self->{'logfile'});
+
     _info(sprintf("%s v%s starting...", $0, $VERSION));
     _debug($self->{'queues'});
 
@@ -609,8 +613,37 @@ sub _read_config {
     $self->{'queues'}      = $self->_parse_queues($queues);
     $self->{'statusqueue'} = $statusqueue;
 
-    $debug_log_enabled = $self->{'debug'};
-    $logFile           = $self->{'logfile'};
+    return;
+}
+
+#################################################
+# catch prints when not attached to a terminal and redirect them to our logger
+sub _capture_standard_output_and_errors {
+    my($logfile) = @_;
+    if(!$logfile || $logfile eq '-' || lc($logfile) eq 'stdout') {
+        return;
+    }
+    if(lc($logfile) eq 'stderr') {
+        return;
+    }
+    my($tmp, $capture);
+    open($capture, '>', \$tmp) or die("cannot open stdout capture: $!");
+    ## no critic
+    tie *$capture, 'GearmanProxy::Log', (*STDOUT, *STDERR);
+    select $capture;
+
+    $SIG{__WARN__} = sub {
+        my($message) = @_;
+        _error($message);
+    };
+    $SIG{__DIE__} = sub {
+        my($message) = @_;
+        _fatal($message);
+    };
+    *STDERR = *$capture;
+    *STDOUT = *$capture;
+    ## use critic
+
     return;
 }
 
@@ -749,80 +782,10 @@ sub _status_name {
     return("UNKNOWN");
 }
 
-#################################################
-sub _out {
-    my($txt, $lvl) = @_;
-    return unless defined $txt;
-    $lvl = 'INFO' unless $lvl;
-    if(ref $txt) {
-        return(_out(Dumper($txt), $lvl));
-    }
-
-    my($fh, $close);
-    if(!$logFile || lc($logFile) eq 'stdout' || $logFile eq '-') {
-        $fh = *STDOUT;
-    } elsif(lc($logFile) eq 'stderr') {
-        $fh = *STDERR;
-    } else {
-        open($fh, ">>", $logFile) or die "open $logFile failed: ".$!;
-        $close = 1;
-    }
-
-    chomp($txt);
-    my @txt = split(/\n/mx, $txt);
-    my($seconds, $microseconds) = gettimeofday;
-    for my $t (@txt)  {
-        my $pad = ' ';
-        if($t =~ m/^\[/mx) { $pad = ''; }
-        printf($fh "[%s.%s][%s][thread-%s]%s%s\n",
-                    POSIX::strftime("%Y-%m-%d %H:%M:%S", localtime($seconds)),
-                    substr(sprintf("%06s", $microseconds), 0, 3), # zero pad microseconds to 6 digits and take the first 3 digits for milliseconds
-                    $lvl,
-                    threads->tid(),
-                    $pad,
-                    $t,
-        );
-    }
-    close($fh) if $close;
-
-    return;
-}
-
-#################################################
-sub _fatal {
-    my($txt) = @_;
-    _out($txt, "ERROR");
-    exit(3);
-}
-
-#################################################
-sub _error {
-    my($txt) = @_;
-    _out($txt, "ERROR");
-    return;
-}
-
-#################################################
-sub _warn {
-    my($txt) = @_;
-    _out($txt, "WARNING");
-    return;
-}
-
-#################################################
-sub _info {
-    my($txt) = @_;
-    _out($txt, "INFO");
-    return;
-}
-
-#################################################
-sub _debug {
-    my($txt) = @_;
-    return unless $debug_log_enabled;
-    _out($txt, "DEBUG");
-    return;
-}
+sub _fatal { return GearmanProxy::Log::fatal(@_);}
+sub _error { return GearmanProxy::Log::error(@_);}
+sub _info  { return GearmanProxy::Log::info(@_);}
+sub _debug { return GearmanProxy::Log::debug(@_);}
 
 #################################################
 

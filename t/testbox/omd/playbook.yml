@@ -16,6 +16,7 @@
   - shell: omd config demo set MOD_GEARMAN on
   - shell: omd config demo set GEARMAN_PROXY on
   - shell: "sudo su - demo -c 'set_admin_password omd'"
+  - shell: echo "testkey" > /omd/sites/demo/var/thruk/secret.key
   - shell: "sudo su - demo -c 'echo demo > etc/mod-gearman/secret.key'"
   - shell: rm /omd/sites/demo/etc/naemon/conf.d/*.cfg
   - copy:

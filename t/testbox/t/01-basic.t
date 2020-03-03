@@ -11,7 +11,6 @@ use Test::More tests => 13;
     like($res, "/Command successfully submitted/", "reschedule was successfull");
 };
 
-
 # force check of proxy status
 {
     my $res = `thruk r -d "" /services/localhost/gearman%20proxy/cmd/schedule_forced_svc_check 2>&1`;
@@ -23,7 +22,7 @@ use Test::More tests => 13;
 {
     my $res = `/omd/sites/demo/lib/monitoring-plugins/check_gearman -H 127.0.0.1:4730 -q proxy_status -s check`;
     is($?, 0, "check_gearman worked");
-    like($res, "/check_gearman OK/", "result contains OK");
+    like($res, "/OK - proxy version/", "result contains OK");
     like($res, "/queues=3/", "result contains queues");
     like($res, "/server=2/", "result contains server");
     like($res, "/'hostgroup_worker1::jobs'=[0-9]+c/", "result contains hostgroup_worker1::jobs");
