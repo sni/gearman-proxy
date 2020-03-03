@@ -160,7 +160,7 @@ in your configuration and check it with:
 The number of returned performance metrics can get pretty large, so you can filter
 for a selection with the perfdatafilter:
 
-    %> .../check_gearman -H 127.0.0.1:4730 -q proxy_status -s 'check perfdatafilter=^(server|queues|total_|bytes_)';
+    %> .../check_gearman -H 127.0.0.1:4730 -q proxy_status -s 'check perfdatafilter=^(server|queues|total_|bytes_)'
 
 ## License
 
