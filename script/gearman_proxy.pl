@@ -16,7 +16,7 @@ Options:
     'c|config'      defines the config file
     'l|log'         defines the logfile
     'p|pid'         write pidfile to this location
-    'd|debug'       enable debug output
+    'd|debug'       enable debug output, use twice to enable trace logs
     'h'             this help message
 
 =head1 DESCRIPTION
@@ -52,13 +52,14 @@ use GearmanProxy;
 my $config = {
     pidFile     => "",
     logFile     => "",
-    debug       => 0,
     configFiles => [],
 };
+Getopt::Long::Configure ("bundling");
 GetOptions ('p|pid=s'    => \$config->{'pidFile'},
             'l|log=s'    => \$config->{'logFile'},
             'c|config=s' => \@{$config->{'configFiles'}},
-            'd|debug'    => \$config->{'debug'},
+            'q|quiet'    => sub { $config->{'debug'} = 0; },
+            'd|debug'    => sub { $config->{'debug'} ||= 1; $config->{'debug'}++; },
             'h'          => sub { pod2usage(); exit(3); },
             'v|version'  => sub { printf("%s - version %s\n", $0, $GearmanProxy::VERSION); exit(3); },
 );

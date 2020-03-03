@@ -2,22 +2,7 @@ package GearmanProxy;
 
 =head1 NAME
 
-gearman_proxy - proxy for gearman jobs
-
-=head1 SYNOPSIS
-
-gearman_proxy [options]
-
-Options:
-
-    'c|config'      defines the config file
-    'l|log'         defines the logfile
-    'd|debug'       enable debug output
-    'h'             this help message
-
-=head1 DESCRIPTION
-
-This script redirects jobs from one gearmand server to another gearmand server.
+GearmanProxy - forwards jobs in Gearman queues
 
 =cut
 
@@ -32,6 +17,7 @@ use threads::shared;
 use Socket qw(IPPROTO_TCP SOL_SOCKET SO_KEEPALIVE TCP_KEEPIDLE TCP_KEEPINTVL TCP_KEEPCNT);
 use POSIX ();
 use File::Slurp qw/read_file/;
+use Data::Dumper;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
 use GearmanProxy::Log;
 
@@ -53,7 +39,7 @@ my %backlog         :shared;
         configFiles => list of config files
         logFile     => path to logfile or 'stderr', 'stdout'
         pidFile     => optional path to pidfile
-        debug       => optional flag to enable debug output
+        loglevel    => optional flag to set loglevel (0 => errors, 1 => info, 2 => debug, 3 => trace)
     })
 
 =cut
@@ -61,8 +47,8 @@ sub new {
     my($class, $config) = @_;
 
     my $self = {
-        args  => $config,
-        debug => $config->{'debug'},
+        args     => $config,
+        loglevel => $config->{'loglevel'},
     };
     bless $self, $class;
 
@@ -80,10 +66,10 @@ sub run {
     my($self) = @_;
 
     $pidFile = $self->{'args'}->{'pidFile'};
-    GearmanProxy::Log::loglevel($self->{'debug'} ? 2 : 1);
+    GearmanProxy::Log::loglevel($self->{'loglevel'});
 
-    _debug('command line arguments:');
-    _debug($self->{'args'});
+    _trace('command line arguments:');
+    _trace($self->{'args'});
 
     #################################################
     # save pid file
@@ -127,12 +113,12 @@ sub _work_loop {
     my($self) = @_;
 
     $self->_read_config($self->{'args'}->{'configFiles'});
-    GearmanProxy::Log::loglevel($self->{'debug'} ? 2 : 1);
+    GearmanProxy::Log::loglevel($self->{'loglevel'});
     GearmanProxy::Log::logfile($self->{'logfile'});
     _capture_standard_output_and_errors($self->{'logfile'});
 
     _info(sprintf("%s v%s starting...", $0, $VERSION));
-    _debug($self->{'queues'});
+    _trace($self->{'queues'});
 
     if(!defined $self->{'queues'} || scalar keys %{$self->{'queues'}} == 0) {
         _error('no queues configured, exiting');
@@ -155,14 +141,14 @@ sub _work_loop {
             }
         }
         if(scalar keys %{$async_queues} > 0) {
-            _debug(sprintf("starting single asynchronous worker for %s", $server));
+            _trace(sprintf("starting single asynchronous worker for %s", $server));
             threads->create('_forward_worker', $self, $server, $async_queues);
         }
 
         for my $key (sort keys %{$sync_queues}) {
             my $q = $sync_queues->{$key};
             for my $x (1..$q->{'worker'}) {
-                _debug(sprintf("starting %d/%d synchronous worker for %s", $x, $q->{'worker'}, $key));
+                _trace(sprintf("starting %d/%d synchronous worker for %s", $x, $q->{'worker'}, $key));
                 threads->create('_forward_worker', $self, $server, { $key => $sync_queues->{$key} });
             }
         }
@@ -187,12 +173,12 @@ sub _work_loop {
 #################################################
 sub _forward_worker {
     my($self, $server, $queues) = @_;
-    _debug("worker thread started");
+    _trace("worker thread started");
 
     my $keep_running = 1;
     while($keep_running) {
         my $worker = Gearman::Worker->new(job_servers => [ $server ]);
-        _debug(sprintf("worker created for %s", $server));
+        _trace(sprintf("worker created for %s", $server));
         my $errors = 0;
         for my $queue (sort keys %{$queues}) {
             if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
@@ -216,15 +202,15 @@ sub _forward_worker {
 #################################################
 sub _status_worker {
     my($self) = @_;
-    _debug("status worker thread started");
+    _trace("status worker thread started");
 
     my $keep_running = 1;
     my($server, $queue) = split(/\//mx, $self->{'statusqueue'});
     while($keep_running) {
         my $worker = Gearman::Worker->new(job_servers => [ $server ]);
-        _debug(sprintf("worker created for %s", $server));
+        _trace(sprintf("worker created for %s", $server));
         my $errors = 0;
-        if(!$worker->register_function($queue => sub { $self->_status_handler($queue, @_) } )) {
+        if(!$worker->register_function($queue => sub { $self->_status_handler($server, $queue, @_) } )) {
             _warn(sprintf("register status queue failed on %s for queue %s", $server, $queue));
             $errors++;
         }
@@ -245,9 +231,15 @@ sub _status_worker {
 sub _job_handler {
     my($self, $config, $job) = @_;
 
-    my $remoteHost = $config->{'remoteHost'};
-    _debug(sprintf('job: %s -> server: %s - queue: %s', $job->handle, $remoteHost, $config->{'remoteQueue'}));
-    _debug($config);
+    _debug(sprintf('[%s//%s] forwarding %s/%s to %s/%s',
+            $config->{'localHost'},
+            $job->handle,
+            $config->{'localHost'},
+            $config->{'localQueue'},
+            $config->{'remoteHost'},
+            $config->{'remoteQueue'},
+    ));
+    _trace($config);
 
     my $data    = $job->arg;
     my $size_in = length($data);
@@ -286,7 +278,7 @@ sub _job_handler {
 
     # forward data to remote server
     my $result = $self->_dispatch_task({
-                server => $remoteHost,
+                server => $config->{'remoteHost'},
                 queue  => $config->{'remoteQueue'},
                 data   => $data,
                 uniq   => $job->handle,
@@ -299,10 +291,13 @@ sub _job_handler {
 
 #################################################
 sub _status_handler {
-    my($self, $config, $job) = @_;
+    my($self, $server, $queue, $job) = @_;
 
-    _debug(sprintf('job: %s -> status request', $job->handle));
-    _debug($config);
+    _debug(sprintf('[%s//%s] status request on queue %s',
+            $server,
+            $job->handle,
+            $queue,
+    ));
 
     # make sure we always have some basic metrics set
     $metrics_counter{'total_jobs'}   += 0;
@@ -438,7 +433,7 @@ sub _dispatch_task {
     }
     my $job_handle = $client->dispatch_background($task);
     if($job_handle) {
-        _debug(sprintf("[%s] background job dispatched to %s", $uniq, $server));
+        _trace(sprintf("[%s] background job dispatched to %s", $uniq, $server));
         delete $failed_clients{$server};
     } else {
         _debug(sprintf("[%s] background job dispatching failed for %s", $uniq, $server));
@@ -463,20 +458,21 @@ sub _worker_work {
     $worker->work(
         on_start => sub {
             my($jobhandle) = @_;
-            _debug(sprintf("[%s] job starting", $jobhandle));
+            _trace(sprintf("[%s] worker:on_start", $jobhandle));
         },
         on_complete => sub {
             my($jobhandle, $result) = @_;
-            _debug(sprintf("[%s] job completed: %s", $jobhandle, $result));
+            my $data = ref $result ? Dumper($result) : $result;
+            _trace(sprintf("[%s] worker:on_complete: %s", $jobhandle, $data));
         },
         on_fail => sub {
             my($jobhandle, $err) = @_;
             $err = "unknown worker error" unless $err;
-            _error(sprintf("[%s] job failed: %s", $jobhandle, $err));
+            _error(sprintf("[%s] worker:on_fail: %s", $jobhandle, $err));
         },
         stop_if => sub {
             my($is_idle, $last_job_time) = @_;
-            _debug(sprintf("stop_if: is_idle=%d - last_job_time=%s keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
+            _trace(sprintf("worker:stop_if: is_idle=%d - last_job_time=%s - keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
             return 1 if ! $keep_running;
             if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
                 _debug(sprintf("refreshing worker after 1min idle"));
@@ -491,7 +487,7 @@ sub _worker_work {
 #################################################
 sub _backlog_worker {
     my($self) = @_;
-    _debug("backlog worker thread started");
+    _trace("backlog worker thread started");
 
     # clean backlog from none-existing client servers
     my $existing_clients = {};
@@ -609,7 +605,7 @@ sub _read_config {
     }
 
     $self->{'logfile'}     = $self->{'args'}->{'logFile'} // $logfile // 'stdout';
-    $self->{'debug'}       = $self->{'args'}->{'debug'} || $debug // 0;
+    $self->{'loglevel'}    = $self->{'args'}->{'debug'} // $debug // 1;
     $self->{'queues'}      = $self->_parse_queues($queues);
     $self->{'statusqueue'} = $statusqueue;
 
@@ -782,10 +778,12 @@ sub _status_name {
     return("UNKNOWN");
 }
 
+#################################################
 sub _fatal { return GearmanProxy::Log::fatal(@_);}
 sub _error { return GearmanProxy::Log::error(@_);}
 sub _info  { return GearmanProxy::Log::info(@_);}
 sub _debug { return GearmanProxy::Log::debug(@_);}
+sub _trace { return GearmanProxy::Log::trace(@_);}
 
 #################################################
 

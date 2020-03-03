@@ -17,7 +17,7 @@ use Data::Dumper qw/Dumper/;
 use Time::HiRes qw/gettimeofday/;
 
 use base 'Exporter';
-our @EXPORT_OK = qw(_fatal _error _info _debug _trace);
+our @EXPORT_OK = qw(fatal error info debug trace);
 
 our $loglevel = 1;
 our $logfile;
@@ -55,11 +55,11 @@ sub logfile {
 
     log something and exit
 
-    printed when loglevel is >=  0
+    printed when loglevel is >= 0
 
 =cut
 sub fatal {
-    debug($_[0],'error');
+    debug($_[0],'ERROR');
     exit(3);
 }
 
@@ -69,11 +69,11 @@ sub fatal {
 
     log something with error loglevel
 
-    printed when loglevel is >=  0
+    printed when loglevel is >= 0
 
 =cut
 sub error {
-    return debug($_[0],'error');
+    return debug($_[0],'ERROR');
 }
 
 ##############################################
@@ -82,11 +82,24 @@ sub error {
 
     log something with info loglevel
 
-    printed when loglevel is >=  1
+    printed when loglevel is >= 1
 
 =cut
 sub info {
-    return debug($_[0],'info');
+    return debug($_[0],'INFO');
+}
+
+##############################################
+
+=head2 trace
+
+    log something with trace loglevel
+
+    printed when loglevel is >= 3
+
+=cut
+sub trace {
+    return debug($_[0],'TRACE');
 }
 
 ##############################################
@@ -95,13 +108,14 @@ sub info {
 
     log something with debug loglevel
 
-    printed when loglevel is >=  2
+    printed when loglevel is >= 2
 
 =cut
 sub debug {
     my($txt, $lvl) = @_;
     return unless defined $txt;
     $lvl = 'DEBUG' unless defined $lvl;
+    return if($loglevel < 3 and uc($lvl) eq 'TRACE');
     return if($loglevel < 2 and uc($lvl) eq 'DEBUG');
     return if($loglevel < 1 and uc($lvl) eq 'INFO');
     if(ref $txt) {
