@@ -299,6 +299,12 @@ sub _status_handler {
             $queue,
     ));
 
+    my $data = $job->arg;
+    my $perfdatafilter;
+    if($data && $data =~ m/perfdatafilter=(\S+)/mx) {
+        $perfdatafilter = qr($1);
+    }
+
     # make sure we always have some basic metrics set
     $metrics_counter{'total_jobs'}   += 0;
     $metrics_bytes{'bytes_in'}       += 0;
@@ -317,26 +323,40 @@ sub _status_handler {
             }
         }
     }
-    my $perfdata = sprintf("server=%d queues=%d", scalar keys %{$self->{'queues'}}, $queue_nr);
-
-    my $merged = {%metrics_counter, %metrics_bytes};
-    my $keys = [sort keys %{$merged}];
-    # move those with :: at the end
-    $keys = [grep(!/::/mx, @{$keys}), grep(/::/mx, @{$keys})];
-    for my $key (@{$keys}) {
-        if($metrics_counter{$key}) {
-            $perfdata .= sprintf(" '%s'=%dc;;;", $key, $metrics_counter{$key});
-        }
-        if($metrics_bytes{$key}) {
-            $perfdata .= sprintf(" '%s'=%db;;;", $key, $metrics_bytes{$key});
-        }
-    }
+    $metrics_counter{'server'} = scalar keys %{$self->{'queues'}};
+    $metrics_counter{'queues'} = $queue_nr;
 
     my($exit, $additional_info, $backlog_nr) = (0, "", 0);
     {
         lock(%backlog);
         $backlog_nr = _count_sub_elements(\%backlog);
     }
+    if($backlog_nr > 0) {
+        $additional_info .= sprintf(" backlog contains %d jobs.", $backlog_nr);
+        $exit = 1;
+    }
+    my $metrics_gauge = {
+        'backlog' => $backlog_nr,
+    };
+
+    my $perfdata = "";
+    my $merged = {%metrics_counter, %metrics_bytes, %{$metrics_gauge}};
+    my $keys = [sort keys %{$merged}];
+    # move those with :: at the end
+    $keys = [grep(!/::/mx, @{$keys}), grep(/::/mx, @{$keys})];
+    for my $key (@{$keys}) {
+        if($perfdatafilter && $key !~ $perfdatafilter) { next; }
+        if(defined $metrics_counter{$key}) {
+            $perfdata .= sprintf(" '%s'=%dc;;;", $key, $metrics_counter{$key});
+        }
+        if(defined $metrics_gauge->{$key}) {
+            $perfdata .= sprintf(" '%s'=%d;;;", $key, $metrics_gauge->{$key});
+        }
+        if(defined $metrics_bytes{$key}) {
+            $perfdata .= sprintf(" '%s'=%db;;;", $key, $metrics_bytes{$key});
+        }
+    }
+
     my $failed_nr  = scalar keys %failed_clients;
     if($failed_nr > 0) {
         $additional_info = sprintf(" %d server%s failed: %s.",
@@ -345,11 +365,6 @@ sub _status_handler {
                             join(", ", sort keys %failed_clients),
                         );
         $exit = 1;
-    }
-    if($backlog_nr > 0) {
-        $additional_info .= sprintf(" backlog contains %d jobs.", $backlog_nr);
-        $exit = 1;
-        $perfdata .= sprintf(" 'backlog'=%d;;;", $backlog_nr);
     }
 
     return(sprintf("%d:%s - proxy version v%s running.%s|%s",
