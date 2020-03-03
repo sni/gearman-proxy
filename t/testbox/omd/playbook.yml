@@ -42,13 +42,13 @@
       path: /omd/sites/demo/etc/mod-gearman/worker.cfg
       regexp: 'identifier='
       line: 'identifier=demo'
-  - name: enable build watcher
-    file:
+  - name: copy build watcher init
+    copy:
       src: /src/t/testbox/omd/build_watcher.init
       dest: /omd/sites/demo/etc/init.d/build_watcher
       owner: demo
       group: demo
-      state: link
+      mode: '0755'
   - name: enable build watcher
     file:
       src: ../init.d/build_watcher
