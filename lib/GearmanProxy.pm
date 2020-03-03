@@ -192,7 +192,7 @@ sub _forward_worker {
         }
 
         eval {
-            $keep_running = $self->_worker_work($worker);
+            $keep_running = $self->_worker_work($server, $worker);
         };
         _error($@) if $@;
     }
@@ -220,7 +220,7 @@ sub _status_worker {
         }
 
         eval {
-            $keep_running = $self->_worker_work($worker);
+            $keep_running = $self->_worker_work($server, $worker);
         };
         _error($@) if $@;
     }
@@ -443,7 +443,8 @@ sub _dispatch_task {
 
 #################################################
 sub _worker_work {
-    my($self, $worker) = @_;
+    my($self, $server, $worker) = @_;
+    _trace(sprintf("[%s] worker thread starting", $server));
 
     my $start = time();
     my $keep_running = 1;
@@ -472,15 +473,16 @@ sub _worker_work {
         },
         stop_if => sub {
             my($is_idle, $last_job_time) = @_;
-            _trace(sprintf("worker:stop_if: is_idle=%d - last_job_time=%s - keep_running=%s", $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
+            _trace(sprintf("[%s] worker:stop_if: is_idle=%d - last_job_time=%s - keep_running=%s", $server, $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
             return 1 if ! $keep_running;
             if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
-                _debug(sprintf("refreshing worker after 1min idle"));
+                _debug(sprintf("[%s] refreshing worker after 1min idle", $server));
                 return 1;
             }
             return;
         },
     );
+    _trace(sprintf("[%s] worker thread finished", $server));
     return($keep_running);
 }
 
