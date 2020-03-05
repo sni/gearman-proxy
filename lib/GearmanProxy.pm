@@ -21,7 +21,7 @@ use Data::Dumper;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
 use GearmanProxy::Log;
 
-our $VERSION = "2.02-2";
+our $VERSION = "2.03";
 
 my $pidFile;
 my $max_retries     = 3;   # number of job retries
@@ -442,15 +442,13 @@ sub _dispatch_task {
         },
     });
     my $client  = $self->_get_client($server);
-    my $taskset = $client->new_task_set;
-    $taskset->add_task($task);
     if(!$options->{'async'}) {
         my $result = $client->do_task($task);
         return($result);
     }
     my $job_handle = $client->dispatch_background($task);
     if($job_handle) {
-        _trace(sprintf("[%s] background job dispatched to %s", $uniq, $server));
+        _trace(sprintf("[%s] background job dispatched from %s", $job_handle, $uniq));
         delete $failed_clients{$server};
     } else {
         _debug(sprintf("[%s] background job dispatching failed for %s", $uniq, $server));
