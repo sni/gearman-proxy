@@ -1,6 +1,6 @@
 This file documents the revision history for the Gearman Proxy
 
-next:
+2.03     Thu Mar  5 14:56:57 CET 2020
           - add performance data filter for check_gearman output
           - fix sending job twice
 
