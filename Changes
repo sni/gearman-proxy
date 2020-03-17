@@ -1,5 +1,8 @@
 This file documents the revision history for the Gearman Proxy
 
+2.04     Tue Mar 17 17:35:24 CET 2020
+          - fix performance counter units
+
 2.03     Thu Mar  5 14:56:57 CET 2020
           - add performance data filter for check_gearman output
           - fix sending job twice
