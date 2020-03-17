@@ -27,7 +27,6 @@ my $pidFile;
 my $max_retries     = 3;   # number of job retries
 my $backlog_timeout = 600; # seconds until a job will be removed from the backlog
 my %metrics_counter :shared;
-my %metrics_bytes   :shared;
 my %failed_clients  :shared;
 my %backlog         :shared;
 
@@ -271,10 +270,9 @@ sub _job_handler {
     # set metrics
     $metrics_counter{$config->{'localQueue'}.'::jobs'}++;
     $metrics_counter{'total_jobs'}++;
-
-    $metrics_bytes{'bytes_in'}  += $size_in;
-    $metrics_bytes{'bytes_out'} += $size_out;
-    $metrics_bytes{$config->{'localQueue'}.'::bytes_out'} += $size_out;
+    $metrics_counter{'bytes_in'}  += $size_in;
+    $metrics_counter{'bytes_out'} += $size_out;
+    $metrics_counter{$config->{'localQueue'}.'::bytes_out'} += $size_out;
 
     # forward data to remote server
     my $result = $self->_dispatch_task({
@@ -309,8 +307,8 @@ sub _status_handler {
 
     # make sure we always have some basic metrics set
     $metrics_counter{'total_jobs'}   += 0;
-    $metrics_bytes{'bytes_in'}       += 0;
-    $metrics_bytes{'bytes_out'}      += 0;
+    $metrics_counter{'bytes_in'}     += 0;
+    $metrics_counter{'bytes_out'}    += 0;
     $metrics_counter{'total_errors'} += 0;
 
     # count queues
@@ -320,13 +318,11 @@ sub _status_handler {
             my $queue_name = $self->{'queues'}->{$server}->{$queue}->{'localQueue'};
             if($queue_name) {
                 $queue_nr++;
-                $metrics_counter{$queue_name.'::jobs'} += 0;
-                $metrics_bytes{$queue_name.'::bytes_out'}    += 0;
+                $metrics_counter{$queue_name.'::jobs'}      += 0;
+                $metrics_counter{$queue_name.'::bytes_out'} += 0;
             }
         }
     }
-    $metrics_counter{'server'} = scalar keys %{$self->{'queues'}};
-    $metrics_counter{'queues'} = $queue_nr;
 
     my($exit, $additional_info, $backlog_nr) = (0, "", 0);
     {
@@ -338,11 +334,13 @@ sub _status_handler {
         $exit = 1;
     }
     my $metrics_gauge = {
+        'server'  => scalar keys %{$self->{'queues'}},
+        'queues'  => $queue_nr,
         'backlog' => $backlog_nr,
     };
 
     my $perfdata = "";
-    my $merged = {%metrics_counter, %metrics_bytes, %{$metrics_gauge}};
+    my $merged = {%metrics_counter, %{$metrics_gauge}};
     my $keys = [sort keys %{$merged}];
     # move those with :: at the end
     $keys = [grep(!/::/mx, @{$keys}), grep(/::/mx, @{$keys})];
@@ -353,9 +351,6 @@ sub _status_handler {
         }
         if(defined $metrics_gauge->{$key}) {
             $perfdata .= sprintf(" '%s'=%d;;;", $key, $metrics_gauge->{$key});
-        }
-        if(defined $metrics_bytes{$key}) {
-            $perfdata .= sprintf(" '%s'=%db;;;", $key, $metrics_bytes{$key});
         }
     }
 
@@ -763,9 +758,6 @@ sub _reset_counter_and_caches {
     $self->{'cipher_cache'}  = {};
     for my $key (sort keys %metrics_counter) {
         delete $metrics_counter{$key};
-    }
-    for my $key (sort keys %metrics_bytes) {
-        delete $metrics_bytes{$key};
     }
     return;
 }
