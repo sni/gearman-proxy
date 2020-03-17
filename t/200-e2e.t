@@ -109,8 +109,8 @@ sub _cleanup {
     kill('TERM', $proxy_pid) if $proxy_pid;
     unlink($gearmand_pidfile);
     unlink($gearmand_logfile);
-    unlink($proxy_pidfile);
-    unlink($proxy_logfile);
+    unlink($proxy_pidfile) if $proxy_pidfile;
+    unlink($proxy_logfile) if $proxy_logfile;
 }
 
 ################################################################################
