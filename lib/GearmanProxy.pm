@@ -181,7 +181,7 @@ sub _forward_worker {
         my $errors = 0;
         for my $queue (sort keys %{$queues}) {
             if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
-                _warn(sprintf("register queue failed on %s for queue %s", $server, $queue));
+                _error(sprintf("register queue failed on %s for queue %s", $server, $queue));
                 $errors++;
             }
         }
@@ -210,7 +210,7 @@ sub _status_worker {
         _trace(sprintf("worker created for %s", $server));
         my $errors = 0;
         if(!$worker->register_function($queue => sub { $self->_status_handler($server, $queue, @_) } )) {
-            _warn(sprintf("register status queue failed on %s for queue %s", $server, $queue));
+            _error(sprintf("register status queue failed on %s for queue %s", $server, $queue));
             $errors++;
         }
 
@@ -584,7 +584,7 @@ sub _enable_tcp_keepalive {
             setsockopt($sock, IPPROTO_TCP, TCP_KEEPCNT,    3); # The maximum number of keepalive probes TCP should send before dropping the connection
         }
     } else {
-        _warn("failed to set tcp keepalive");
+        _error("failed to set tcp keepalive");
     }
     return;
 }
