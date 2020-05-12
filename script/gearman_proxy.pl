@@ -16,7 +16,8 @@ Options:
     'c|config'      defines the config file
     'l|log'         defines the logfile
     'p|pid'         write pidfile to this location
-    'd|debug'       enable debug output, use twice to enable trace logs
+    'v|verbose'     enable verbose output, use twice to enable trace logs
+    'V|version'     print version and exit
     'h'             this help message
 
 =head1 DESCRIPTION
@@ -33,9 +34,9 @@ Specifies the path to the configfile / folder.
 
 Specifies the path to the logfile.
 
-=item [B<--debug>]
+=item [B<--verbose>]
 
-Enable debug logging.
+Enable verbose logging.
 
 =head1 EXAMPLES
 
@@ -59,9 +60,9 @@ GetOptions ('p|pid=s'    => \$config->{'pidFile'},
             'l|log=s'    => \$config->{'logFile'},
             'c|config=s' => \@{$config->{'configFiles'}},
             'q|quiet'    => sub { $config->{'debug'} = 0; },
-            'd|debug'    => sub { $config->{'debug'} ||= 1; $config->{'debug'}++; },
+            'v|verbise'  => sub { $config->{'debug'} ||= 1; $config->{'debug'}++; },
             'h'          => sub { pod2usage(); exit(3); },
-            'v|version'  => sub { printf("%s - version %s\n", $0, $GearmanProxy::VERSION); exit(3); },
+            'V|version'  => sub { printf("%s - version %s\n", $0, $GearmanProxy::VERSION); exit(3); },
 );
 
 # use default config files
