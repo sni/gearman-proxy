@@ -141,24 +141,24 @@ sub _work_loop {
         }
         if(scalar keys %{$async_queues} > 0) {
             _trace(sprintf("starting single asynchronous worker for %s", $server));
-            threads->create('_forward_worker', $self, $server, $async_queues);
+            threads->create(\&_worker_thread, $self, \&_forward_worker, [$server, $async_queues]);
         }
 
         for my $key (sort keys %{$sync_queues}) {
             my $q = $sync_queues->{$key};
             for my $x (1..$q->{'worker'}) {
                 _trace(sprintf("starting %d/%d synchronous worker for %s", $x, $q->{'worker'}, $key));
-                threads->create('_forward_worker', $self, $server, { $key => $sync_queues->{$key} });
+                threads->create(\&_worker_thread, $self, \&_forward_worker, [$server, { $key => $sync_queues->{$key} }]);
             }
         }
     }
 
     # create backlog worker thread
-    threads->create('_backlog_worker', $self);
+    threads->create(\&_worker_thread, $self, \&_backlog_worker);
 
     # create status worker thread
     if($self->{'statusqueue'}) {
-        threads->create('_status_worker', $self);
+        threads->create(\&_worker_thread, $self, \&_status_worker);
     }
 
     # wait till worker finish
@@ -170,32 +170,56 @@ sub _work_loop {
 }
 
 #################################################
+# wraps thread function and restarts them in case of errors
+sub _worker_thread {
+    my($self, $function, $args) = @_;
+
+    $self->{'keep_running'} = 1;
+    local $SIG{'HUP'}  = sub {
+        _debug(sprintf("worker thread exits by signal %s", "HUP"));
+        $self->{'keep_running'} = 0;
+    };
+
+    while($self->{'keep_running'}) {
+        my $worker;
+        eval {
+            $worker = &{$function}($self, @{$args});
+            if($@) {
+                _error($@);
+                sleep(3);
+            }
+        };
+        # cleanup
+        if($worker) {
+            eval {
+                $worker->reset_abilities();
+            };
+            undef $worker;
+        }
+    }
+    return(threads->exit());
+}
+
+#################################################
 sub _forward_worker {
     my($self, $server, $queues) = @_;
     _trace("worker thread started");
 
-    my $keep_running = 1;
-    while($keep_running) {
-        my $worker = Gearman::Worker->new(job_servers => [ $server ]);
-        _trace(sprintf("worker created for %s", $server));
-        my $errors = 0;
-        for my $queue (sort keys %{$queues}) {
-            if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
-                _error(sprintf("register queue failed on %s for queue %s", $server, $queue));
-                $errors++;
-            }
+    my $worker = Gearman::Worker->new(job_servers => [ $server ]);
+    _trace(sprintf("worker created for %s", $server));
+    my $errors = 0;
+    for my $queue (sort keys %{$queues}) {
+        if(!$worker->register_function($queue => sub { $self->_job_handler($queues->{$queue}, @_) } )) {
+            _error(sprintf("register queue failed on %s for queue %s", $server, $queue));
+            $errors++;
         }
-
-        if(scalar keys %{$queues} == $errors) {
-            _error(sprintf("gearman daemon %s seems to be down", $server));
-        }
-
-        eval {
-            $keep_running = $self->_worker_work($server, $worker);
-        };
-        _error($@) if $@;
     }
-    return(threads->exit());
+
+    if(scalar keys %{$queues} == $errors) {
+        _error(sprintf("gearman daemon %s seems to be down", $server));
+    }
+
+    return($self->_worker_work($server, $worker));
 }
 
 #################################################
@@ -203,27 +227,20 @@ sub _status_worker {
     my($self) = @_;
     _trace("status worker thread started");
 
-    my $keep_running = 1;
     my($server, $queue) = split(/\//mx, $self->{'statusqueue'});
-    while($keep_running) {
-        my $worker = Gearman::Worker->new(job_servers => [ $server ]);
-        _trace(sprintf("worker created for %s", $server));
-        my $errors = 0;
-        if(!$worker->register_function($queue => sub { $self->_status_handler($server, $queue, @_) } )) {
-            _error(sprintf("register status queue failed on %s for queue %s", $server, $queue));
-            $errors++;
-        }
-
-        if($errors) {
-            _error(sprintf("gearman daemon %s seems to be down", $server));
-        }
-
-        eval {
-            $keep_running = $self->_worker_work($server, $worker);
-        };
-        _error($@) if $@;
+    my $worker = Gearman::Worker->new(job_servers => [ $server ]);
+    _trace(sprintf("worker created for %s", $server));
+    my $errors = 0;
+    if(!$worker->register_function($queue => sub { $self->_status_handler($server, $queue, @_) } )) {
+        _error(sprintf("register status queue failed on %s for queue %s", $server, $queue));
+        $errors++;
     }
-    return(threads->exit());
+
+    if($errors) {
+        _error(sprintf("gearman daemon %s seems to be down", $server));
+    }
+
+    return($self->_worker_work($server, $worker));
 }
 
 #################################################
@@ -457,12 +474,6 @@ sub _worker_work {
     _trace(sprintf("[%s] worker thread starting", $server));
 
     my $start = time();
-    my $keep_running = 1;
-    local $SIG{'HUP'}  = sub {
-        _debug(sprintf("worker thread exits by signal %s", "HUP"));
-        $worker->reset_abilities() if $worker;
-        $keep_running = 0;
-    };
 
     _enable_tcp_keepalive($worker);
 
@@ -483,8 +494,8 @@ sub _worker_work {
         },
         stop_if => sub {
             my($is_idle, $last_job_time) = @_;
-            _trace(sprintf("[%s] worker:stop_if: is_idle=%d - last_job_time=%s - keep_running=%s", $server, $is_idle, $last_job_time ? $last_job_time : "never", $keep_running));
-            return 1 if ! $keep_running;
+            _trace(sprintf("[%s] worker:stop_if: is_idle=%d - last_job_time=%s - keep_running=%s", $server, $is_idle, $last_job_time ? $last_job_time : "never", $self->{'keep_running'}));
+            return 1 if ! $self->{'keep_running'};
             if((!$last_job_time && $start < time() - 60) || ($last_job_time && $last_job_time < time() - 60)) {
                 _debug(sprintf("[%s] refreshing worker after 1min idle", $server));
                 return 1;
@@ -493,7 +504,7 @@ sub _worker_work {
         },
     );
     _trace(sprintf("[%s] worker thread finished", $server));
-    return($keep_running);
+    return($worker);
 }
 
 #################################################
@@ -517,13 +528,7 @@ sub _backlog_worker {
         }
     }
 
-    my $keep_running = 1;
-    local $SIG{'HUP'}  = sub {
-        _debug(sprintf("backlog worker thread exits by signal %s", "HUP"));
-        $keep_running = 0;
-    };
-
-    while($keep_running) {
+    while($self->{'keep_running'}) {
         my($count, $server) = (0, []);
         {
             lock %backlog;
