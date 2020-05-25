@@ -10,10 +10,10 @@ use 5.008000;
 
 use warnings;
 use strict;
+use threads 'exit' => 'threads_only';
+use threads::shared;
 use Gearman::Worker;
 use Gearman::Client 2.004;
-use threads;
-use threads::shared;
 use Socket qw(IPPROTO_TCP SOL_SOCKET SO_KEEPALIVE TCP_KEEPIDLE TCP_KEEPINTVL TCP_KEEPCNT);
 use POSIX ();
 use File::Slurp qw/read_file/;
@@ -127,6 +127,9 @@ sub _work_loop {
     # clear client connection cache and ciphers
     $self->_reset_counter_and_caches();
 
+    # list of threads
+    my $threads = [];
+
     # create one worker per uniq server
     for my $server (keys %{$self->{'queues'}}) {
         my $async_queues = {};
@@ -141,31 +144,77 @@ sub _work_loop {
         }
         if(scalar keys %{$async_queues} > 0) {
             _trace(sprintf("starting single asynchronous worker for %s", $server));
-            threads->create(\&_worker_thread, $self, \&_forward_worker, [$server, $async_queues]);
+            push @{$threads}, {
+                function => \&_worker_thread,
+                args     => [$self, \&_forward_worker, [$server, $async_queues]],
+            }
         }
 
         for my $key (sort keys %{$sync_queues}) {
             my $q = $sync_queues->{$key};
             for my $x (1..$q->{'worker'}) {
                 _trace(sprintf("starting %d/%d synchronous worker for %s", $x, $q->{'worker'}, $key));
-                threads->create(\&_worker_thread, $self, \&_forward_worker, [$server, { $key => $sync_queues->{$key} }]);
+                push @{$threads}, {
+                    function => \&_worker_thread,
+                    args     => [ $self, \&_forward_worker, [$server, { $key => $sync_queues->{$key} }]],
+                };
             }
         }
     }
 
     # create backlog worker thread
-    threads->create(\&_worker_thread, $self, \&_backlog_worker);
+    push @{$threads}, {
+        function => \&_worker_thread,
+        args     => [ $self, \&_backlog_worker ],
+    };
 
     # create status worker thread
     if($self->{'statusqueue'}) {
-        threads->create(\&_worker_thread, $self, \&_status_worker);
+        push @{$threads}, {
+            function => \&_worker_thread,
+            args     => [ $self, \&_status_worker ],
+        };
     }
 
-    # wait till worker finish
+    $self->_run_threads($threads);
+    _debug("all worker finished");
+    return;
+}
+
+#################################################
+# starts threads and restarts them in case of errors
+sub _run_threads {
+    my($self, $threads) = @_;
+    for my $t (@{$threads}) {
+        my $thr = threads->create($t->{'function'}, @{$t->{'args'}});
+        $t->{'thr'} = $thr;
+    }
+
     while(scalar threads->list() > 0) {
         sleep(5);
+        for my $t (@{$threads}) {
+            next unless $t->{'thr'};
+            _trace(sprintf("thread %d: running %s - joinable: %s",
+                    $t->{'thr'}->tid(),
+                    $t->{'thr'}->is_running() ? "yes" : "no",
+                    $t->{'thr'}->is_joinable() ? "yes" : "no",
+            ));
+            if($t->{'thr'}->is_joinable()) {
+                my $rc = $t->{'thr'}->join();
+                _debug(sprintf("thread %d exited: %s", $t->{'thr'}->tid(), $rc // "undef"));
+                if($rc) {
+                    # exited correctly
+                    delete $t->{'thr'};
+                } else {
+                    # needs restart
+                    _debug(sprintf("thread %d restarted", $t->{'thr'}->tid()));
+                    my $thr = threads->create($t->{'function'}, @{$t->{'args'}});
+                    $t->{'thr'} = $thr;
+                }
+            }
+        }
     }
-    _debug("all worker finished");
+
     return;
 }
 
@@ -197,7 +246,7 @@ sub _worker_thread {
             undef $worker;
         }
     }
-    return(threads->exit());
+    return(1);
 }
 
 #################################################
