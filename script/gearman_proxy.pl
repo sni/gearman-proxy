@@ -60,7 +60,7 @@ GetOptions ('p|pid=s'    => \$config->{'pidFile'},
             'l|log=s'    => \$config->{'logFile'},
             'c|config=s' => \@{$config->{'configFiles'}},
             'q|quiet'    => sub { $config->{'debug'} = 0; },
-            'v|verbise'  => sub { $config->{'debug'} ||= 1; $config->{'debug'}++; },
+            'v|verbose'  => sub { $config->{'debug'} ||= 1; $config->{'debug'}++; },
             'h'          => sub { pod2usage(); exit(3); },
             'V|version'  => sub { printf("%s - version %s\n", $0, $GearmanProxy::VERSION); exit(3); },
 );
