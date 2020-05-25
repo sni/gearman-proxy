@@ -147,7 +147,7 @@ sub _work_loop {
             push @{$threads}, {
                 function => \&_worker_thread,
                 args     => [$self, \&_forward_worker, [$server, $async_queues]],
-            }
+            };
         }
 
         for my $key (sort keys %{$sync_queues}) {
