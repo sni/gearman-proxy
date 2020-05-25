@@ -1,5 +1,8 @@
 This file documents the revision history for the Gearman Proxy
 
+2.07     Mon May 25 13:41:33 CEST 2020
+          - fix crash on gearmand restarts
+
 2.06     Tue May 12 18:10:41 CEST 2020
           - fix crash on gearmand timeouts
 

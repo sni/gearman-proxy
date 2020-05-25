@@ -21,7 +21,7 @@ use Data::Dumper;
 use sigtrap 'handler', \&_signal_handler, 'HUP', 'TERM';
 use GearmanProxy::Log;
 
-our $VERSION = "2.06";
+our $VERSION = "2.07";
 
 my $pidFile;
 my $max_retries     = 3;   # number of job retries
