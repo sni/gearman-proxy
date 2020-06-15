@@ -735,7 +735,7 @@ sub _parse_queues {
         $to->{'localQueue'}  = $fromqueue;
 
         # check crypto modules
-        if($to->{'encrypt'} || $to->{'decrypt'}) {
+        if($to->{'encrypt'} || $to->{'decrypt'} || $to->{'data_callback'}) {
             eval {
                 require Crypt::Rijndael;
                 require MIME::Base64;
