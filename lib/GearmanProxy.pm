@@ -308,6 +308,7 @@ sub _job_handler {
 
     my $data    = $job->arg;
     my $size_in = length($data);
+    my $uniq;
 
     if($config->{'decrypt'}) {
         # decrypt data with local password
@@ -320,7 +321,7 @@ sub _job_handler {
             $data = MIME::Base64::decode_base64($data);
         }
 
-        $data = &{$config->{'data_callback'}}($data, $job, $config, $self);
+        ($data, $uniq) = &{$config->{'data_callback'}}($data, $job, $config, $self);
 
         # if data is not going to be encrypted, it needs to be base64
         if(!$config->{'encrypt'}) {
@@ -345,7 +346,7 @@ sub _job_handler {
                 server => $config->{'remoteHost'},
                 queue  => $config->{'remoteQueue'},
                 data   => $data,
-                uniq   => $job->handle,
+                uniq   => $uniq || '-',
                 async  => $config->{'async'},
     });
 

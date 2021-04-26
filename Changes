@@ -1,5 +1,8 @@
 This file documents the revision history for the Gearman Proxy
 
+next:
+          - support uniq id set by data_callback
+
 2.07     Mon May 25 13:41:33 CEST 2020
           - fix crash on gearmand restarts
 

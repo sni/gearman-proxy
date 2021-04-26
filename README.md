@@ -110,8 +110,10 @@ in a variable and use that later.
       # do something with the data, for example, change the result queue
       $data =~ s/^result_queue=.*$/result_queue=results_servicegroup_special/gmx;
 
-      # returned result will be pushed to the remote server
-      return($data);
+      # returned result will be pushed to the remote server.
+      # If uniq is set, it will be used as new uniq id. Defaults to '-' which
+      # is a special value und will be converted to a data hash.
+      return($data, $uniq);
     }
 
     $queues->{"..."} = {
