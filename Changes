@@ -1,6 +1,6 @@
 This file documents the revision history for the Gearman Proxy
 
-next:
+2.08     Mon Sep 27 15:36:39 CEST 2021
           - support uniq id set by data_callback
 
 2.07     Mon May 25 13:41:33 CEST 2020
