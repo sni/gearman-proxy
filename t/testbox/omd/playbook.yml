@@ -12,7 +12,6 @@
       state: present
 
 # omd site
-  - shell: omd config demo set APACHE_MODE own
   - shell: omd config demo set MOD_GEARMAN on
   - shell: omd config demo set GEARMAN_PROXY on
   - shell: "sudo su - demo -c 'set_admin_password omd'"
@@ -60,7 +59,6 @@
 
 # create worker1 site
   - shell: omd create worker1
-  - shell: omd config worker1 set APACHE_MODE off
   - shell: omd config worker1 set CORE none
   - shell: omd config worker1 set MOD_GEARMAN on
   - shell: omd config worker1 set GEARMAND_PORT 127.0.0.1:4731
